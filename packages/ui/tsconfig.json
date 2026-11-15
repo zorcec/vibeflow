@@ -17,5 +17,13 @@
     "rootDir": "./src"
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    // Template story only: inert (Storybook serves stories/*.stories.tsx, so
+    // this never runs as a story) and it imports stories/a11y +
+    // .storybook/ThemeDecorator, which live outside rootDir ./src. Its shape
+    // is guarded instead by src/templates/__tests__/story-template.test.ts.
+    "src/templates/*.stories.tsx"
+  ]
 }

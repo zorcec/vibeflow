@@ -754,11 +754,19 @@ export const TaskCard = React.memo(function TaskCard({
                         gap: 4,
                         userSelect: "none",
                         position: "relative",
+                        // Live-edit tint rides the token tier instead of raw
+                        // rgba (P13.1): --t-accent-soft-bg is the same 8%
+                        // accent wash, restated per theme. The ring/border
+                        // below use color-mix against --t-accent so they
+                        // track the theme accent exactly (59,130,246 in the
+                        // dark default, as before); a browser without
+                        // color-mix drops the declaration and falls back to
+                        // the plain card border — graceful, not broken.
                         background: liveActivity
-                              ? "rgba(59,130,246,0.08)"
+                              ? "var(--t-accent-soft-bg)"
                               : cardBgColor,
                         border: liveActivity
-                              ? "1px solid rgba(59,130,246,0.5)"
+                              ? "1px solid color-mix(in srgb, var(--t-accent) 50%, transparent)"
                               : cardBorderColor
                                 ? `1px solid ${cardBorderColor}`
                                 : undefined,
@@ -769,7 +777,7 @@ export const TaskCard = React.memo(function TaskCard({
                                                   ? "inset 3px 0 0 0 var(--t-danger)"
                                                   : null,
                                             liveActivity
-                                                  ? "0 0 0 2px rgba(59,130,246,0.14)"
+                                                  ? "0 0 0 2px color-mix(in srgb, var(--t-accent) 14%, transparent)"
                                                   : null,
                                       ]
                                             .filter(Boolean)

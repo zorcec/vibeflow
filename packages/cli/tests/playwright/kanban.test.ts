@@ -2658,7 +2658,12 @@ describe("Kanban board", () => {
 
     // Perform a real Playwright click inside the modal content to verify that
     // the modal's onMouseDown stopPropagation prevents the detail panel from closing.
-    await page.click("#settings-modal .modal-box");
+    // The Dialog primitive (P14.1) renders ONE node that carries both the
+    // dialog role and the legacy `modal-box` class, so the old descendant
+    // selector `#settings-modal .modal-box` can never match. Clicking the
+    // popup itself is the same intent: inside the modal content, not the
+    // backdrop.
+    await page.click("#settings-modal");
 
     // Detail panel must still be open
     const panelOpen = await page.evaluate(

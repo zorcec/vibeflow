@@ -379,21 +379,19 @@ describe("DetailPanel needs-attention icon", () => {
     const { container, unmount } = renderPanel(
       makeTask({ needsAttention: true }) as unknown as Task,
     );
-    // Details tab starts active.
-    expect(
-      container.querySelector("#dp-tab-details")?.className,
-    ).toContain("active");
+    // The active tab carries the exact `active` class TOKEN. A substring check
+    // would now pass on the Button primitive's `active:` utility variants
+    // (P14.3), which say nothing about which tab is selected.
+    const hasActiveToken = (el: Element | null) =>
+      (el?.className ?? "").split(/\s+/).includes("active");
+    expect(hasActiveToken(container.querySelector("#dp-tab-details"))).toBe(true);
     const bell = container.querySelector(
       '#dp-attention-row button[data-attention-press="true"]',
     );
     expect(bell).not.toBeNull();
     fireEvent.click(bell!);
-    expect(
-      container.querySelector("#dp-tab-activity")?.className,
-    ).toContain("active");
-    expect(
-      container.querySelector("#dp-tab-details")?.className,
-    ).not.toContain("active");
+    expect(hasActiveToken(container.querySelector("#dp-tab-activity"))).toBe(true);
+    expect(hasActiveToken(container.querySelector("#dp-tab-details"))).toBe(false);
     unmount();
   });
 });

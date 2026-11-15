@@ -1,0 +1,99 @@
+/* ══════════════════════════════════════════════════════════════
+   PRIMITIVES THEME MAP (design-system P4) — token→utility map.
+   Exposes every --t-* semantic token from kanban/themes.css (:root
+   tier — no invented tokens) as a Tailwind v4 utility namespace via
+   `@theme inline`, so primitives can use color utilities bound to
+   tokens (e.g. the surface token) instead of arbitrary values. `inline` keeps the var()
+   reference verbatim in the output, so runtime [data-theme]
+   switching keeps working (the value is NOT baked at build time).
+
+   CONSUMER CONTRACT: import this file AFTER the Tailwind entry
+   (`@import "tailwindcss"`) in the compiled CSS input — @theme
+   entries must be registered in the same compilation for the
+   utilities to be generated. E.g. in
+   packages/cli/src/client/kanban/kanban.css:
+     @import "../../../../../packages/ui/src/primitives/theme.css";
+   (the CLI build inlines it via scripts/gen-kanban-css.mjs because
+   the compiler input is assembled in os.tmpdir()).
+   ══════════════════════════════════════════════════════════════ */
+
+@theme inline {
+ --color-accent: var(--t-accent);
+ --color-accent-contrast: var(--t-accent-contrast);
+ --color-accent-hover: var(--t-accent-hover);
+ --color-accent-soft: var(--t-accent-soft);
+ --color-accent-soft-bg: var(--t-accent-soft-bg);
+ --color-accent-soft-border: var(--t-accent-soft-border);
+ --color-accent-strong: var(--t-accent-strong);
+ --color-accent-subtle: var(--t-accent-subtle);
+ --color-agent: var(--t-agent);
+ --color-bg: var(--t-bg);
+ --color-bg-raised: var(--t-bg-raised);
+ --color-border: var(--t-border);
+ --color-border-faint: var(--t-border-faint);
+ --color-border-strong: var(--t-border-strong);
+ --color-card: var(--t-card);
+ --color-card-inset: var(--t-card-inset);
+ --color-chip-amber-300: var(--t-chip-amber-300);
+ --color-chip-amber-400: var(--t-chip-amber-400);
+ --color-chip-blue-200: var(--t-chip-blue-200);
+ --color-chip-blue-300: var(--t-chip-blue-300);
+ --color-chip-cyan-300: var(--t-chip-cyan-300);
+ --color-chip-green-300: var(--t-chip-green-300);
+ --color-chip-green-400: var(--t-chip-green-400);
+ --color-chip-orange-400: var(--t-chip-orange-400);
+ --color-chip-pink-300: var(--t-chip-pink-300);
+ --color-chip-purple-300: var(--t-chip-purple-300);
+ --color-chip-red-300: var(--t-chip-red-300);
+ --color-chip-slate-400: var(--t-chip-slate-400);
+ --color-code-bg: var(--t-code-bg);
+ --color-control-surface: var(--t-control-surface);
+ --color-cyan: var(--t-cyan);
+ --color-cyan-soft: var(--t-cyan-soft);
+ --color-danger: var(--t-danger);
+ --color-danger-soft: var(--t-danger-soft);
+ --color-danger-strong: var(--t-danger-strong);
+ --color-hover: var(--t-hover);
+ --color-info-soft: var(--t-info-soft);
+ --color-input: var(--t-input);
+ --color-on-accent: var(--t-on-accent);
+ --color-overlay-scrim: var(--t-overlay-scrim);
+ --color-pink-soft: var(--t-pink-soft);
+ --color-rel-blocks: var(--t-rel-blocks);
+ --color-rel-children: var(--t-rel-children);
+ --color-rel-parent: var(--t-rel-parent);
+ --color-rel-related: var(--t-rel-related);
+ --color-secondary: var(--t-secondary);
+ --color-secondary-soft: var(--t-secondary-soft);
+ --color-status-backlog: var(--t-status-backlog);
+ --color-status-done: var(--t-status-done);
+ --color-status-progress: var(--t-status-progress);
+ --color-status-review: var(--t-status-review);
+ --color-status-todo: var(--t-status-todo);
+ --color-success: var(--t-success);
+ --color-success-soft: var(--t-success-soft);
+ --color-success-subtle: var(--t-success-subtle);
+ --color-surface: var(--t-surface);
+ --color-syntax-bool: var(--t-syntax-bool);
+ --color-syntax-key: var(--t-syntax-key);
+ --color-syntax-null: var(--t-syntax-null);
+ --color-syntax-number: var(--t-syntax-number);
+ --color-syntax-string: var(--t-syntax-string);
+ --color-text: var(--t-text);
+ --color-text-body: var(--t-text-body);
+ --color-text-faint: var(--t-text-faint);
+ --color-text-ghost: var(--t-text-ghost);
+ --color-text-muted: var(--t-text-muted);
+ --color-text-sub: var(--t-text-sub);
+ --color-warning: var(--t-warning);
+ --color-warning-soft: var(--t-warning-soft);
+ --color-warning-subtle: var(--t-warning-subtle);
+ --color-white: var(--t-white);
+
+ /* Shadow namespace carries its own `shadow-` prefix, so the token's
+    redundant `shadow-` is dropped: `shadow-card`, not `shadow-shadow-card`. */
+ --shadow-card: var(--t-shadow-card);
+ --shadow-lg: var(--t-shadow-lg);
+ --shadow-modal: var(--t-shadow-modal);
+ --shadow-popover: var(--t-shadow-popover);
+}

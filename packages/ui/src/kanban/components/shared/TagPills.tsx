@@ -40,6 +40,10 @@ export function TagPills({ tags, onRemove, size = 'sm' }: Props) {
             {onRemove && (
               <button
                 type="button"
+                /* A bare "×" has no name: an AT user hears "times" with no
+                   idea which tag it removes. */
+                aria-label={`Remove tag ${tag}`}
+                title={`Remove tag ${tag}`}
                 onClick={(e) => { e.stopPropagation(); onRemove(tag); }}
                 style={{ display: 'flex', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: 0, lineHeight: 1, opacity: 0.7 }}
                 onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}

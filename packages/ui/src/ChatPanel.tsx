@@ -17,6 +17,7 @@
 
 import React from "react";
 import { X, Send, Check, Ban, Square, Paperclip, Bot, User, AlertTriangle, ImageIcon } from "lucide-react";
+import { Button } from "./primitives";
 
 export interface ChatToolCall {
   toolCallId: string;
@@ -90,7 +91,9 @@ function ToolCard({ call }: { call: ChatToolCall }) {
       data-done={call.done ? "true" : "false"}
       className="vf-chat-tool"
     >
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         type="button"
         className="vf-chat-tool-head"
         onClick={() => setOpen((v) => !v)}
@@ -101,7 +104,7 @@ function ToolCard({ call }: { call: ChatToolCall }) {
         <span className="vf-chat-tool-state">
           {call.done ? (call.isError ? "failed" : "done") : "running…"}
         </span>
-      </button>
+      </Button>
       {open && (
         <pre className="vf-chat-tool-args">{argsPreview(call.args)}</pre>
       )}
@@ -187,7 +190,9 @@ export function ChatPanel({
         <Bot size={16} aria-hidden="true" />
         <span className="vf-chat-title">Agent</span>
         {busy && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             type="button"
             className="vf-chat-abort"
             onClick={onAbort}
@@ -195,9 +200,11 @@ export function ChatPanel({
             data-testid="chat-abort"
           >
             <Square size={12} aria-hidden="true" /> Stop
-          </button>
+          </Button>
         )}
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           type="button"
           className="vf-chat-close"
           onClick={onClose}
@@ -205,7 +212,7 @@ export function ChatPanel({
           data-testid="chat-close"
         >
           <X size={16} aria-hidden="true" />
-        </button>
+        </Button>
       </div>
 
       {degraded && (
@@ -264,20 +271,24 @@ export function ChatPanel({
               </div>
               <pre className="vf-chat-approval-args">{a.argsSummary}</pre>
               <div className="vf-chat-approval-actions">
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   type="button"
                   data-testid="chat-approve"
                   onClick={() => onApprove(a.approvalId)}
                 >
                   <Check size={13} aria-hidden="true" /> Approve
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
                   type="button"
                   data-testid="chat-deny"
                   onClick={() => onDeny(a.approvalId)}
                 >
                   <Ban size={13} aria-hidden="true" /> Deny
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -290,7 +301,9 @@ export function ChatPanel({
             <span key={img.id} className="vf-chat-preview">
               <ImageIcon size={13} aria-hidden="true" />
               <img src={img.previewUrl} alt={img.file.name} />
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 type="button"
                 aria-label={`Remove ${img.file.name}`}
                 onClick={() =>
@@ -301,7 +314,7 @@ export function ChatPanel({
                 }
               >
                 <X size={12} aria-hidden="true" />
-              </button>
+              </Button>
             </span>
           ))}
         </div>
@@ -328,7 +341,9 @@ export function ChatPanel({
             }
           }}
         />
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           type="button"
           data-testid="chat-send"
           onClick={send}
@@ -336,7 +351,7 @@ export function ChatPanel({
           aria-label="Send message"
         >
           <Send size={15} aria-hidden="true" />
-        </button>
+        </Button>
       </div>
     </div>
   );

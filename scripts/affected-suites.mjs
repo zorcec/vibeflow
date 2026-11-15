@@ -8,7 +8,8 @@
 // this module; it must never run suites unconditionally.
 //
 // Suites: unit (vitest run), e2e (vitest.e2e), integration
-// (vitest.integration), playwright (vitest.pw / test:browser).
+// (vitest.integration), playwright (vitest.pw / test:browser),
+// ui (@vibeflow-tools/ui unit suite + story tests).
 //
 // Usage (review without pushing):
 //   node scripts/affected-suites.mjs --dry-run --range <base>..<head>
@@ -20,7 +21,7 @@
 
 import { execFileSync } from "node:child_process";
 
-export const ALL_SUITES = ["unit", "e2e", "integration", "playwright"];
+export const ALL_SUITES = ["unit", "e2e", "integration", "playwright", "ui"];
 const ALL = [...ALL_SUITES];
 
 // [pattern, suites]. First match wins. "none" paths (docs, changesets,
@@ -35,9 +36,9 @@ const RULES = [
   [/^packages\/cli\//, ["unit", "e2e", "integration"]],
   // Root scripts with unit pins (check-git-identity, release-cli, this map).
   [/^scripts\//, ["unit"]],
-  // Shared UI sources: the runnable suite in this repo is test:browser
-  // (the @vibeflow-tools/ui unit suite runs in its own package gate).
-  [/^packages\/ui\//, ["playwright"]],
+  // Design-system sources: the @vibeflow-tools/ui unit suite plus the
+  // story tests (test:stories) run in the pre-push `ui` lane.
+  [/^packages\/ui\//, ["ui"]],
   // No suite in this repo: docs, changesets, skills, web sources (n/a here).
   [/\.md$/, []],
   [/^\.changeset\//, []],

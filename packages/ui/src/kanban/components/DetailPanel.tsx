@@ -1,4 +1,5 @@
 import React from "react";
+import { Button, Input } from "../../primitives";
 import { X, Upload, Maximize2, Minimize2 } from "lucide-react";
 import {
   TASK_DESCRIPTION_MAX,
@@ -214,6 +215,11 @@ interface Props {
   open: boolean;
   task: Task | null;
   tab: Tab;
+  /**
+   * Portal target for the markdown editors' `#` mention dropdown. The overlay
+   * passes its shadow root so the dropdown keeps the overlay's tokens (P7).
+   */
+  container?: HTMLElement | null;
   addColumnId?: TaskStatus;
   gitUserName?: string;
   githubUrl?: string | null;
@@ -288,6 +294,7 @@ export function DetailPanel({
   open,
   task,
   tab,
+  container,
   addColumnId = "todo",
   gitUserName = "You",
   githubUrl,
@@ -512,7 +519,18 @@ export function DetailPanel({
       if ((e.target as Element)?.closest?.('[data-role="type-picker-menu"]')) return;
       // Allow clicks inside any modal overlay (FilePreviewModal, SettingsModal, etc.)
       // They render outside the panel DOM but should not close the panel.
-      if ((e.target as Element)?.closest?.(".modal-backdrop")) return;
+      //
+      // `.modal-backdrop` is the OLD hand-rolled class; P14.1 moved every modal
+      // onto the Dialog primitive, which renders `[data-role="dialog-backdrop"]`
+      // and a `role="dialog"` popup. Keeping only the old selector silently made
+      // every click inside a modal "outside" — 9 Playwright tests caught it.
+      if (
+        (e.target as Element)?.closest?.(
+          '.modal-backdrop, [data-role="dialog-backdrop"], [role="dialog"]',
+        )
+      ) {
+        return;
+      }
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         // If a "send comment?" modal is already shown, don't trigger another one
         if (showCommentSendConfirmRef.current) return;
@@ -1397,7 +1415,7 @@ export function DetailPanel({
                 if (!isAdd && task) onPatch(task.id, { type: newType });
               }}
             />
-            <input
+            <Input
               id="dp-title"
               ref={titleInputRef}
               className="dp-input"
@@ -1502,6 +1520,9 @@ export function DetailPanel({
             </button>
             <button
               id="dp-close"
+              // axe `button-name` (critical): the close control is icon-only
+              // with no label of its own. Found by the P14.3 story sweep.
+              aria-label="Close detail panel"
               onClick={handleCloseRequest}
               style={{
                 width: 26,
@@ -1709,14 +1730,18 @@ export function DetailPanel({
         {/* Tabs (hidden in add mode) */}
         {!isAdd && (
           <div className="dp-tabs" id="dp-tabs-row">
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               className={`dp-tab${activeTab === "details" ? " active" : ""}`}
               id="dp-tab-details"
               onClick={() => handleTabChange("details")}
             >
               Details
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               className={`dp-tab${activeTab === "comments" ? " active" : ""}`}
               id="dp-tab-activity"
               onClick={() => handleTabChange("comments")}
@@ -1730,8 +1755,10 @@ export function DetailPanel({
                   ({commentCount})
                 </span>
               )}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               className={`dp-tab${activeTab === "files" ? " active" : ""}`}
               id="dp-tab-files"
               onClick={() => handleTabChange("files")}
@@ -1745,7 +1772,7 @@ export function DetailPanel({
                   ({fileCount})
                 </span>
               )}
-            </button>
+            </Button>
           </div>
         )}
 
@@ -1824,6 +1851,7 @@ export function DetailPanel({
                 isAdd={isAdd}
                 mentionTasks={mentionTasks}
                 taskLookup={taskLookup}
+                container={container}
               />
               {descError && (
                 <div
@@ -1961,6 +1989,7 @@ export function DetailPanel({
                 baseRows={2}
                 mentionTasks={mentionTasks}
                 taskLookup={taskLookup}
+                container={container}
               />
             </div>
             <CommentsList

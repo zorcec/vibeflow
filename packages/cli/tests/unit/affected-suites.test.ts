@@ -28,9 +28,9 @@ describe("affected-only pre-push gate", () => {
     ).toEqual(["e2e", "integration", "unit"]);
   });
 
-  it("a packages/ui/src change selects the browser suite", () => {
+  it("a packages/ui/src change selects the ui suite", () => {
     expect(selectSuitesForPaths(["packages/ui/src/kanban/card.tsx"])).toEqual([
-      "playwright",
+      "ui",
     ]);
   });
 

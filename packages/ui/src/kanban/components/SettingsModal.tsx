@@ -3,6 +3,7 @@ import { X, Settings, Layout, ShieldCheck } from "lucide-react";
 import type { TaskStatus, AppSettings } from "../types";
 import { COLUMNS } from "./KanbanBoard";
 import { ModalBase } from "./ModalBase";
+import { Button } from "../../primitives";
 
 /**
  * Lifecycle handle the modal hands its `appearance` slot when `appearance` is a
@@ -229,8 +230,11 @@ export function SettingsModal({
       }
       title="Settings"
       headerActions={
-        <button
+        <Button
           id="settings-close"
+          variant="ghost"
+          size="sm"
+          aria-label="Close settings"
           onClick={handleDismiss}
           style={{
             width: 26,
@@ -255,20 +259,24 @@ export function SettingsModal({
           }}
         >
           <X style={{ width: 14, height: 14 }} />
-        </button>
+        </Button>
       }
       footer={
         <div style={{ display: "flex", gap: 8 }}>
-          <button
+          <Button
             id="settings-cancel"
+            variant="secondary"
+            size="sm"
             onClick={handleDismiss}
             className="dp-status-btn"
             style={{ padding: "5px 14px", fontSize: 12 }}
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             id="settings-apply"
+            variant="secondary"
+            size="sm"
             onClick={handleApply}
             style={{
               padding: "5px 14px",
@@ -293,22 +301,24 @@ export function SettingsModal({
             }}
           >
             Apply
-          </button>
+          </Button>
         </div>
       }
     >
       {/* Tab bar */}
       <div className="dp-tabs">
         {tabs.map((tab) => (
-          <button
+          <Button
             key={tab.id}
+            variant="ghost"
+            size="sm"
             onClick={() => setActiveTab(tab.id)}
             className={`dp-tab${activeTab === tab.id ? " active" : ""}`}
             style={{ display: "flex", alignItems: "center", gap: 6 }}
           >
             {tab.icon}
             {tab.label}
-          </button>
+          </Button>
         ))}
       </div>
 

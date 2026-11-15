@@ -2,8 +2,6 @@
 export { VibeflowIcon } from "./VibeflowIcon";
 
 // Shared kanban components
-export { KanbanBoard } from "./KanbanBoard";
-export { KanbanCard } from "./KanbanCard";
 export { TaskDetailPanel } from "./TaskDetailPanel";
 export type {
   TaskComment,
@@ -74,3 +72,42 @@ export type {
 
 // Kanban app components (shared between CLI and web)
 export * from "./kanban";
+
+
+// Design-system primitives — exported from the entry so stories and the web
+// migration import through the package, never a …/src/… file path.
+export {
+  Button,
+  type ButtonProps,
+  type ButtonVariant,
+  type ButtonSize,
+} from "./primitives/button";
+export {
+  Badge,
+  BADGE_TONES,
+  type BadgeProps,
+  type BadgeVariant,
+  type BadgeSize,
+  type BadgeTone,
+} from "./primitives/badge";
+export { Input, type InputProps, type InputState } from "./primitives/input";
+export {
+  Textarea,
+  type TextareaProps,
+  type TextareaState,
+  type TextareaResize,
+} from "./primitives/textarea";
+export { Dialog, type DialogProps } from "./primitives/dialog";
+export { Popover, type PopoverProps, type PopoverSide, type PopoverAlign } from "./primitives/popover";
+export { Tooltip, type TooltipProps, type TooltipSide } from "./primitives/tooltip";
+export { Select, type SelectProps, type SelectOption } from "./primitives/select";
+export {
+  Tabs,
+  type TabsProps,
+  type TabDefinition,
+  type TabsActivationMode,
+  type TabsOrientation,
+} from "./primitives/tabs";
+
+// Collaboration primitives (P17d.1) — data-free, framework-free.
+export * from "./collab";

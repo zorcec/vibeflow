@@ -21,8 +21,10 @@
     "test:integration": "pnpm --filter @vibeflow-tools/cli run test:integration",
     "test:e2e": "pnpm --filter @vibeflow-tools/cli run test:e2e",
     "test:browser": "pnpm --filter @vibeflow-tools/cli run test:browser",
+    "test:ui": "pnpm --filter @vibeflow-tools/ui run test",
+    "test:stories": "pnpm --filter @vibeflow-tools/ui run test:stories",
     "test:coverage": "pnpm --filter @vibeflow-tools/cli run test:coverage",
-    "lint:symbols": "eslint \"packages/*/src/**/*.{ts,tsx}\"",
+    "lint:symbols": "eslint \"packages/*/src/**/*.{ts,tsx}\" \"packages/ui/stories/**/*.{ts,tsx}\"",
     "lint:ai": "eslint --config eslint.config.ai-warn.mjs \"packages/*/src/**/*.{ts,tsx}\" \"packages/*/tests/**/*.{ts,tsx}\"",
     "lint:knip": "knip --no-exit-code",
     "lint": "pnpm run lint:symbols && pnpm -r run lint",
@@ -37,7 +39,9 @@
     "vibeflow": "node packages/cli/scripts/dev-parallel.mjs",
     "prepare": "husky",
     "release:check-deps": "node scripts/check-publishable-deps.mjs",
-    "release:cli": "node scripts/release-cli.mjs"
+    "release:cli": "node scripts/release-cli.mjs",
+    "gate:ui": "node scripts/gate-ui.mjs",
+    "check:bundle-budget": "node packages/cli/scripts/check-bundle-budget.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",

@@ -860,17 +860,42 @@ describe("lane-scoped leading slot reservation (8545aeca)", () => {
       });
 
       it("gives the row layout's lane-dot fallback a real box in kanban.css", () => {
-            const css = readFileSync(
+            // PORTED (P13.1): render the row-layout card and measure the
+            // lane dot through getComputedStyle instead of regexing the
+            // stylesheet's text. `.sd-*` once declared only a background,
+            // so the row fallback mark rendered 0px wide and the 12px
+            // reservation hid a mark with no box — a computed width/height
+            // fails if the rule loses its box again, and unlike the old
+            // text match it also fails if the rule stops applying to the
+            // element that renders the class.
+            const style = document.createElement("style");
+            style.textContent = readFileSync(
                   resolve(
                         dirname(fileURLToPath(import.meta.url)),
                         "../../kanban.css",
                   ),
                   "utf-8",
             );
-            // `.sd-*` declared only a background, so the row fallback mark rendered
-            // 0px wide and the 12px reservation hid a mark with no box.
-            const rule = css.match(/\.sd-backlog,[\s\S]*?\}/);
-            expect(rule?.[0]).toMatch(/width:\s*7px/);
-            expect(rule?.[0]).toMatch(/height:\s*7px/);
+            document.head.appendChild(style);
+            try {
+                  const { container } = renderCard(
+                        makeTask({ status: "backlog", openedBy: ["user-1"] }),
+                        {
+                              col: lane("backlog"),
+                              compact: true,
+                              currentUserId: "user-1",
+                        },
+                  );
+                  const dot = container.querySelector<HTMLElement>(
+                        ".sd-backlog",
+                  );
+                  expect(dot, "row-layout lane dot must render").not.toBeNull();
+                  const cs = getComputedStyle(dot!);
+                  expect(cs.width).toBe("7px");
+                  expect(cs.height).toBe("7px");
+                  expect(cs.borderRadius).toBe("50%");
+            } finally {
+                  style.remove();
+            }
       });
 });

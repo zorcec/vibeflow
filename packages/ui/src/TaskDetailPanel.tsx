@@ -261,6 +261,12 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
 
       {/* Panel */}
       <aside
+        data-role="task-detail-panel"
+        aria-label="Task details"
+        /* Closed, this panel is only slid off-screen — it stayed in the
+           accessibility tree and in the tab order, so a keyboard user could
+           tab into an invisible panel. `visibility` removes it from both. */
+        aria-hidden={!open}
         style={{
           position: "fixed",
           top: 0,
@@ -275,7 +281,8 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
           display: "flex",
           flexDirection: "column",
           transform: open ? "translateX(0)" : "translateX(100%)",
-          transition: "transform 0.22s cubic-bezier(.25,.8,.25,1)",
+          visibility: open ? "visible" : "hidden",
+          transition: "transform 0.22s cubic-bezier(.25,.8,.25,1), visibility 0.22s",
           pointerEvents: open ? "auto" : "none",
         }}
       >
@@ -319,6 +326,8 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
             )}
             <button
               onClick={handlers.onClose}
+              /* Icon-only control: without a name it is announced as "button". */
+              aria-label="Close task details"
               style={{ width: 26, height: 26, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 6, border: "none", background: "transparent", color: "var(--t-text-ghost)", cursor: "pointer" }}
               onMouseOver={(e) => { e.currentTarget.style.background = "var(--t-hover)"; e.currentTarget.style.color = "var(--t-text-muted)"; }}
               onMouseOut={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--t-text-ghost)"; }}
@@ -335,6 +344,7 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
               return (
                 <button
                   key={s.id}
+                  aria-label={`Set status to ${s.label ?? s.id}`}
                   onClick={() => void handleStatusChange(s.id)}
                   style={{
                     padding: "3px 10px",
@@ -427,6 +437,7 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
                 <div style={metaLabel}>Priority</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <select
+                    aria-label="Priority"
                     value={priority}
                     onChange={(e) => void handlePriorityChange(e)}
                     style={{ ...input, padding: "5px 8px", fontSize: 12, cursor: "pointer", width: "auto", minWidth: 120 }}
@@ -563,6 +574,7 @@ export function TaskDetailPanel({ task, open, statuses, handlers }: Props) {
         >
           <button
             onClick={() => setShowDeleteConfirm(true)}
+            aria-label="Delete task"
             disabled={deleting}
             style={{
               color: "var(--t-danger)",

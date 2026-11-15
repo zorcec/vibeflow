@@ -1,6 +1,39 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* ══════════════════════════════════════════════════════════════
+   !important INVENTORY (audited 2026-11-14)
+
+   The design-system rebuild treats !important as debt, so each of
+   these was reviewed rather than assumed necessary. All seven stay:
+   deleting any of them needs a test for the state it protects, and
+   several of those states (drag, orphan rows, narrow viewport) are
+   not reachable from a story.
+
+   1. .task-card.dragging … .child-toggle-label { display: block }
+      Deliberately beats the MORE specific `:hover` rule eight lines
+      above, which hides the label. Intent: while the card is being
+      dragged, the label never hides, so dragstart cannot reflow the
+      card. Removing it re-introduces that reflow only in the
+      drag+hover state — invisible to every test we have.
+
+   2. .child-link-dot--hollow { background: transparent }
+   3. .child-row--orphan { border-left: dashed }
+   4. .child-row-wrap--inline .card-copy-id--child { border-radius: 0 }
+      All three override an INLINE style written by the component.
+      An inline declaration outranks any stylesheet rule, so without
+      !important the rule is inert — not merely weaker.
+
+   5. .kb-header-desktop-actions { display: none }   (max-width MQ)
+   6. .kb-filter-bar { padding, gap }                (max-width MQ)
+   7. #kanban-list-view { padding }                  (max-width MQ)
+      The desktop rules they override use equal or higher
+      specificity and sit later in the file, so source order plus
+      !important is what makes the mobile layout win.
+   ══════════════════════════════════════════════════════════════ */
+
+/* NOTE (design-system P1): this shared stylesheet carries NO Tailwind
+   entrance. Each consumer owns its Tailwind version: the CLI board
+   compiles with v4 from packages/cli/src/client/kanban/kanban.css
+   (`@import "tailwindcss"` there). Do not re-add @tailwind/@import
+   lines here — a second entrance would fork the utility output. */
 
 /* THEME TOKENS — the single source of truth is themes.css (semantic --t-*
    tier + per-theme --p-* primitives). It is prepended before this file in the
@@ -86,15 +119,29 @@ body {
    Tailwind `h-screen` utility on <body> (0,1,1 > 0,1,0). */
 html {
  height: 100vh;
- height: 100dvh;
 }
 body.h-screen {
  height: 100vh;
- height: 100dvh;
 }
 #root {
  max-height: 100vh;
- max-height: 100dvh;
+}
+/* `@supports` rather than a duplicated declaration. Lightning CSS (Tailwind v4
+   pipeline) treats the second `height` as redundant for its default browser
+   targets and DELETES it, which silently dropped the dynamic-viewport
+   behaviour this file is built around (measured 2026-11-15: the generated
+   bundle contained only `height:100dvh`, and no `100vh` fallback at all).
+   Feature detection cannot be folded away, so the intent survives minification. */
+@supports (height: 100dvh) {
+ html {
+  height: 100dvh;
+ }
+ body.h-screen {
+  height: 100dvh;
+ }
+ #root {
+  max-height: 100dvh;
+ }
 }
 
 * {
@@ -284,12 +331,6 @@ body.h-screen {
 }
 .child-toggle-chip[aria-expanded="true"] .child-toggle-chevron {
  transform: rotate(180deg);
-}
-.drag-over {
- outline: 2px dashed rgba(59, 130, 246, 0.5);
- outline-offset: -3px;
- border-radius: 10px;
- background: rgba(59, 130, 246, 0.04);
 }
 
 /* ── File compact hover actions ── */
@@ -611,29 +652,44 @@ body.h-screen {
  border: 1px solid;
 }
 .type-bug {
- color: #fca5a5;
- background: rgba(239, 68, 68, 0.1);
- border-color: rgba(239, 68, 68, 0.25);
+ /* Token, not a literal: the pastels used here were invisible on the
+    light themes (see scripts/a11y-sweep.mjs). The chip tokens already
+    flip per theme. */
+ color: var(--t-chip-red-300);
+ background: color-mix(in srgb, var(--t-chip-red-300) 10%, transparent);
+ border-color: color-mix(in srgb, var(--t-chip-red-300) 28%, transparent);
 }
 .type-feature {
- color: #86efac;
- background: rgba(34, 197, 94, 0.08);
- border-color: rgba(34, 197, 94, 0.2);
+ /* Token, not a literal: the pastels used here were invisible on the
+    light themes (see scripts/a11y-sweep.mjs). The chip tokens already
+    flip per theme. */
+ color: var(--t-chip-green-300);
+ background: color-mix(in srgb, var(--t-chip-green-300) 10%, transparent);
+ border-color: color-mix(in srgb, var(--t-chip-green-300) 28%, transparent);
 }
 .type-enhancement {
- color: #93c5fd;
- background: rgba(59, 130, 246, 0.08);
- border-color: rgba(59, 130, 246, 0.2);
+ /* Token, not a literal: the pastels used here were invisible on the
+    light themes (see scripts/a11y-sweep.mjs). The chip tokens already
+    flip per theme. */
+ color: var(--t-chip-blue-300);
+ background: color-mix(in srgb, var(--t-chip-blue-300) 10%, transparent);
+ border-color: color-mix(in srgb, var(--t-chip-blue-300) 28%, transparent);
 }
 .type-task {
- color: #cbd5e1;
- background: rgba(148, 163, 184, 0.08);
- border-color: rgba(148, 163, 184, 0.2);
+ /* Token, not a literal: the pastels used here were invisible on the
+    light themes (see scripts/a11y-sweep.mjs). The chip tokens already
+    flip per theme. */
+ color: var(--t-chip-slate-400);
+ background: color-mix(in srgb, var(--t-chip-slate-400) 10%, transparent);
+ border-color: color-mix(in srgb, var(--t-chip-slate-400) 28%, transparent);
 }
 .type-research {
- color: #c4b5fd;
- background: rgba(139, 92, 246, 0.08);
- border-color: rgba(139, 92, 246, 0.2);
+ /* Token, not a literal: the pastels used here were invisible on the
+    light themes (see scripts/a11y-sweep.mjs). The chip tokens already
+    flip per theme. */
+ color: var(--t-chip-purple-300);
+ background: color-mix(in srgb, var(--t-chip-purple-300) 10%, transparent);
+ border-color: color-mix(in srgb, var(--t-chip-purple-300) 28%, transparent);
 }
 
 /* ── Source pill ── */
@@ -1187,7 +1243,6 @@ body.proto-resizing-panel {
  display: flex;
  flex-direction: column;
  max-height: calc(100vh - 24px);
- max-height: calc(100dvh - 24px);
  overflow: hidden;
 }
 .child-popover-list {
@@ -1203,7 +1258,14 @@ body.proto-resizing-panel {
  overscroll-behavior: contain;
  min-height: 0;
  max-height: min(calc(100vh - 130px), 840px);
- max-height: min(calc(100dvh - 130px), 840px);
+}
+@supports (height: 100dvh) {
+ .child-popover {
+  max-height: calc(100dvh - 24px);
+ }
+ .child-popover-list {
+  max-height: min(calc(100dvh - 130px), 840px);
+ }
 }
 .child-popover-list > [data-role="child-row-wrap"] {
  height: 28px;
@@ -1436,8 +1498,8 @@ body.proto-resizing-panel {
  padding: 6px 8px;
  font-size: 11px;
  color: var(--t-text-sub);
- background: #a78bfa11;
- border: 1px dashed #a78bfa44;
+ background: color-mix(in srgb, var(--t-status-review) 7%, transparent);
+ border: 1px dashed color-mix(in srgb, var(--t-status-review) 27%, transparent);
  border-radius: 6px;
  line-height: 1.4;
 }
@@ -1708,31 +1770,6 @@ body.proto-resizing-panel {
  gap: 0;
 }
 
-/* ── Card children toggle row (collapsed state) ── */
-.card-children-toggle {
- display: flex;
- align-items: center;
- gap: 6px;
- margin-top: 10px;
- padding: 4px 8px;
- border: none;
- background: transparent;
- color: var(--t-text-muted);
- font-size: 11px;
- cursor: pointer;
- border-radius: 6px;
- transition: background 0.1s;
- width: 100%;
- text-align: left;
-}
-.card-children-toggle:hover {
- background: var(--t-hover);
-}
-.card-children-toggle-label {
- flex: 1;
- min-width: 0;
-}
-
 /* ── Card children zone (inside the article) ── */
 .card-children-zone {
  display: grid;
@@ -1868,7 +1905,7 @@ body.proto-resizing-panel {
 .dnd-drop-center {
  outline: 2px dashed var(--t-accent);
  outline-offset: -4px;
- background: color-mix(in srgb, #60a5fa 10%, transparent);
+ background: color-mix(in srgb, var(--t-accent) 10%, transparent);
  border-radius: 8px;
  transition:
   outline 0.12s,
@@ -1884,8 +1921,8 @@ body.proto-resizing-panel {
   background 0.12s;
 }
 .dnd-zone-hover .card-children-zone {
- background: #60a5fa14;
- outline: 1px dashed #60a5fa66;
+ background: color-mix(in srgb, var(--t-accent) 8%, transparent);
+ outline: 1px dashed color-mix(in srgb, var(--t-accent) 40%, transparent);
  outline-offset: -1px;
 }
 
@@ -1903,8 +1940,8 @@ body.proto-resizing-panel {
 }
 /* Center-intent row highlight — hovered node is the make-child target. */
 .tree-node--drop-target > div > .child-link-row {
- background: color-mix(in srgb, #60a5fa 14%, transparent);
- outline: 1px dashed color-mix(in srgb, #60a5fa 60%, transparent);
+ background: color-mix(in srgb, var(--t-accent) 14%, transparent);
+ outline: 1px dashed color-mix(in srgb, var(--t-accent) 60%, transparent);
  outline-offset: -1px;
  border-radius: 3px;
 }
@@ -1922,8 +1959,8 @@ body.proto-resizing-panel {
  cursor: copy;
 }
 .empty-child-slot--drop-target {
- border-color: color-mix(in srgb, #60a5fa 70%, transparent);
- background: color-mix(in srgb, #60a5fa 12%, transparent);
+ border-color: color-mix(in srgb, var(--t-accent) 70%, transparent);
+ background: color-mix(in srgb, var(--t-accent) 12%, transparent);
  color: var(--t-text);
 }
 

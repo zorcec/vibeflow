@@ -1,5 +1,5 @@
 import { state, PREFS_KEY } from "./state.js";
-import { OVERLAY_CSS, HOST_PAGE_CSS } from "./css.js";
+import { OVERLAY_CSS, OVERLAY_UTIL_CSS, HOST_PAGE_CSS } from "./css.js";
 import { OVERLAY_ROOT_ID } from "../overlay-attributes.js";
 
 // ── Shadow DOM setup ──────────────────────────────────────────────────────────
@@ -17,6 +17,14 @@ export function setupShadowDom(): { host: HTMLElement; root: ShadowRoot } {
   const styleEl = document.createElement("style");
   styleEl.textContent = OVERLAY_CSS;
   root.appendChild(styleEl);
+
+  // P7.2: compiled Tailwind utility subset for shared primitives rendered
+  // in the shadow root. A second <style> with textContent — the same
+  // CSP-safe mechanism as above (no constructed stylesheets, no remote
+  // fetches), so saas-overlay-csp stays green.
+  const utilStyleEl = document.createElement("style");
+  utilStyleEl.textContent = OVERLAY_UTIL_CSS;
+  root.appendChild(utilStyleEl);
 
   const hostStyle = document.createElement("style");
   hostStyle.textContent = HOST_PAGE_CSS;

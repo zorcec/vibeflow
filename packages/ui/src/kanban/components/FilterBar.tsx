@@ -2,6 +2,7 @@ import React from 'react';
 import { LayoutDashboard, List, Rows3, Tag, ChevronDown, X, User } from 'lucide-react';
 import type { Task, TaskStatus, TaskType } from '../types';
 import { TASK_TYPE_FILTER_OPTIONS } from '../../task-types';
+import { Button } from '../../primitives';
 import { getTagColors } from '../tag-colors';
 import { ConfirmModal } from './ConfirmModal';
 
@@ -187,8 +188,10 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
           const count = sf.id !== 'all' ? countByStatus(sf.id as TaskStatus) : null;
           const activeStyle = isActive ? STATUS_ACTIVE_STYLE[sf.id] : {};
           return (
-            <button
+            <Button
               key={sf.id}
+              variant="ghost"
+              size="sm"
               data-status={sf.id}
               style={{ ...pill, ...activeStyle }}
               onMouseOver={e => { if (!isActive) { e.currentTarget.style.background = 'var(--t-hover)'; e.currentTarget.style.color = 'var(--t-text-muted)'; } }}
@@ -200,7 +203,7 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
               {count != null && (
                 <span style={{ color: isActive ? 'inherit' : 'var(--t-text-body)', fontSize: 10, opacity: 0.8 }}>{count}</span>
               )}
-            </button>
+            </Button>
           );
         })}
       </div>
@@ -342,7 +345,13 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
 
       {/* Type filter */}
       <div style={{ position: 'relative' }}>
-          <button
+          {/* Button primitive (P13.2). The inline `dropBtn` style outranks the
+              primitive's utility classes on every visual property, so the
+              control is byte-identical to the pre-primitive button; the
+              primitive adds type="button" and its focus ring. */}
+          <Button
+            variant="ghost"
+            size="sm"
             style={{ ...dropBtn, color: filter.type ? 'var(--t-cyan-soft)' : 'var(--t-text-faint)', borderColor: filter.type ? 'color-mix(in srgb, var(--t-accent) 36%, transparent)' : 'var(--t-border)', opacity: types.length ? 1 : 0.55 }}
             onClick={(e) => {
               e.stopPropagation();
@@ -353,24 +362,34 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
             <Tag style={{ width: 12, height: 12 }} />
             Type
             <ChevronDown style={{ width: 12, height: 12 }} />
-          </button>
+          </Button>
           {typeOpen && types.length > 0 && (
             <div
               style={{ position:'absolute', top:'calc(100% + 4px)', right:0, minWidth:140, background:'var(--t-card)', border:'1px solid var(--t-border-strong)', borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,0.25)', zIndex:50, overflow:'hidden' }}
               onClick={(e) => e.stopPropagation()}
             >
-              <button
-                style={{ width:'100%', textAlign:'left', padding:'7px 12px', fontSize:11, color:'var(--t-text-body)', background:'none', border:'none', cursor:'pointer', borderBottom:'1px solid var(--t-border)' }}
-                onClick={() => setType(null)}
-              >All types</button>
+            <Button
+              variant="ghost"
+              size="sm"
+              /* justify-start/font-normal/transition-none undo the primitive's
+                 flex-centring, font-medium and transition so these rows render
+                 exactly as the legacy block buttons did; the inline style
+                 covers width/padding/colour/background. */
+              className="justify-start font-normal transition-none"
+              style={{ width:'100%', textAlign:'left', padding:'7px 12px', fontSize:11, color:'var(--t-text-body)', background:'none', border:'none', cursor:'pointer', borderBottom:'1px solid var(--t-border)' }}
+              onClick={() => setType(null)}
+            >All types</Button>
               {types.map(t => (
-                <button
+                <Button
                   key={t.value}
+                  variant="ghost"
+                  size="sm"
+                  className="justify-start font-normal transition-none"
                   style={{ width:'100%', textAlign:'left', padding:'7px 12px', fontSize:11, color: filter.type === t.value ? 'var(--t-cyan-soft)' : 'var(--t-text-muted)', background: filter.type === t.value ? 'color-mix(in srgb, var(--t-accent) 12%, transparent)' : 'none', border:'none', cursor:'pointer' }}
                   onMouseOver={e => { if (filter.type !== t.value) e.currentTarget.style.background = 'var(--t-hover)'; }}
                   onMouseOut={e => { if (filter.type !== t.value) e.currentTarget.style.background = 'none'; }}
                   onClick={() => setType(t.value)}
-                >{t.label}</button>
+                >{t.label}</Button>
               ))}
             </div>
           )}

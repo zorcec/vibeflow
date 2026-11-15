@@ -58,3 +58,5 @@ credentials.json
 .coverage-e2e/
 
 secrets.env
+# Storybook static build (local-only harness, owner decision #11)
+storybook-static/

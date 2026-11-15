@@ -49,13 +49,25 @@ describe("kanban CSS — footer stays on real-device viewports", () => {
   it("tracks the dynamic (visible) viewport height, with vh fallback", () => {
     // Root chain: html + body.h-screen (out-specifies the Tailwind
     // h-screen utility) + #root max-height guard.
-    expect(KANBAN_CSS).toContain("height:100vh;height:100dvh");
-    expect(KANBAN_CSS).toContain("max-height:100vh;max-height:100dvh");
+    //
+    // Asserted as CONTRACT, not as minifier output. The previous assertions
+    // required the literal `height:100vh;height:100dvh`, which only held under
+    // the Tailwind v3 pipeline: Lightning CSS (v4) treats the second declaration
+    // as redundant for its default targets and DELETED `100vh` entirely — the
+    // fallback was silently gone while the assertion was merely reformatted.
+    // The source now uses `@supports (height: 100dvh)`, which cannot be folded,
+    // so both halves stay asserted here.
+    expect(KANBAN_CSS).toContain("height:100vh");
+    expect(KANBAN_CSS).toContain("@supports (height:100dvh)");
+    expect(KANBAN_CSS).toContain("max-height:100vh");
   });
 
   it("clamps popovers to the dynamic viewport, with vh fallback", () => {
-    expect(KANBAN_CSS).toContain("calc(100dvh - 24px)");
-    expect(KANBAN_CSS).toContain("calc(100dvh - 130px)");
+    // Same reason as above: Lightning CSS folds `calc()` inside `min()`
+    // (`min(calc(100dvh - 130px),840px)` -> `min(100dvh - 130px,840px)`), which
+    // is spec-equivalent. Assert the measurement, not the wrapper.
+    expect(KANBAN_CSS).toContain("100dvh - 24px");
+    expect(KANBAN_CSS).toContain("100dvh - 130px");
   });
 
   it("reflows the detail panel footer on narrow viewports", () => {
