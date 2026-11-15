@@ -1,3 +1,34 @@
+/* ══════════════════════════════════════════════════════════════
+   !important INVENTORY (audited 2026-11-14)
+
+   The design-system rebuild treats !important as debt, so each of
+   these was reviewed rather than assumed necessary. All seven stay:
+   deleting any of them needs a test for the state it protects, and
+   several of those states (drag, orphan rows, narrow viewport) are
+   not reachable from a story.
+
+   1. .task-card.dragging … .child-toggle-label { display: block }
+      Deliberately beats the MORE specific `:hover` rule eight lines
+      above, which hides the label. Intent: while the card is being
+      dragged, the label never hides, so dragstart cannot reflow the
+      card. Removing it re-introduces that reflow only in the
+      drag+hover state — invisible to every test we have.
+
+   2. .child-link-dot--hollow { background: transparent }
+   3. .child-row--orphan { border-left: dashed }
+   4. .child-row-wrap--inline .card-copy-id--child { border-radius: 0 }
+      All three override an INLINE style written by the component.
+      An inline declaration outranks any stylesheet rule, so without
+      !important the rule is inert — not merely weaker.
+
+   5. .kb-header-desktop-actions { display: none }   (max-width MQ)
+   6. .kb-filter-bar { padding, gap }                (max-width MQ)
+   7. #kanban-list-view { padding }                  (max-width MQ)
+      The desktop rules they override use equal or higher
+      specificity and sit later in the file, so source order plus
+      !important is what makes the mobile layout win.
+   ══════════════════════════════════════════════════════════════ */
+
 /* NOTE (design-system P1): this shared stylesheet carries NO Tailwind
    entrance. Each consumer owns its Tailwind version: the CLI board
    compiles with v4 from packages/cli/src/client/kanban/kanban.css
