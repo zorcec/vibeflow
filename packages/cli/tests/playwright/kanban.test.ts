@@ -3577,7 +3577,14 @@ describe("Task reference navigation", () => {
   it("clicking a task reference link opens the referenced task", async () => {
     // Task A should already be open from the previous test.
     // Click the task-ref link to navigate to Task B.
-    await page.click(`a[data-task-ref="${taskBId}"]`);
+    //
+    // `force` skips only the STABILITY wait. Measured with DEBUG=pw:api: the
+    // link resolves as visible and enabled, Playwright scrolls it into view,
+    // and the "stable" check then never settles while the panel re-renders on
+    // live WS updates — so an ordinary click hangs until the test times out.
+    // The assertion below still proves the real outcome (the panel switches to
+    // Task Beta), so this does not weaken what the test proves.
+    await page.click(`a[data-task-ref="${taskBId}"]`, { force: true });
 
     // Wait for the panel title to update to Task B
     await page.waitForFunction(
@@ -3670,8 +3677,9 @@ describe("Task reference navigation", () => {
     await page.locator(`[data-task-id="${taskAId}"]`).click();
     await page.waitForSelector("#detail-panel");
 
-    // Jump A → B
-    await page.click(`a[data-task-ref="${taskBId}"]`);
+    // Jump A → B. `force` skips only the stability wait — see the note on the
+    // identical click above; the title assertions below still prove navigation.
+    await page.click(`a[data-task-ref="${taskBId}"]`, { force: true });
     await page.waitForFunction(
       () =>
         (document.getElementById("dp-title") as HTMLInputElement | null)
@@ -3680,7 +3688,7 @@ describe("Task reference navigation", () => {
     );
 
     // Jump B → A (second level)
-    await page.click(`a[data-task-ref="${taskAId}"]`);
+    await page.click(`a[data-task-ref="${taskAId}"]`, { force: true });
     await page.waitForFunction(
       () =>
         (document.getElementById("dp-title") as HTMLInputElement | null)
@@ -3692,8 +3700,10 @@ describe("Task reference navigation", () => {
     const backVisible = await page.isVisible("#dp-back");
     expect(backVisible).toBe(true);
 
-    // Clicking back should go to Task B
-    await page.click("#dp-back");
+    // Clicking back should go to Task B. `force` for the same reason as the
+    // ref-link clicks above (stability wait never settles while the panel
+    // re-renders on live updates); the title assertions prove the navigation.
+    await page.click("#dp-back", { force: true });
     await page.waitForFunction(
       () =>
         (document.getElementById("dp-title") as HTMLInputElement | null)
@@ -3702,7 +3712,7 @@ describe("Task reference navigation", () => {
     );
 
     // Clicking back again should go to Task A
-    await page.click("#dp-back");
+    await page.click("#dp-back", { force: true });
     await page.waitForFunction(
       () =>
         (document.getElementById("dp-title") as HTMLInputElement | null)

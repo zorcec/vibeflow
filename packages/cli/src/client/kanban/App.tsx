@@ -537,7 +537,38 @@ function BoardApp() {
     }
 
     function openTaskFromUrl() {
-      // Canonical path link first: /kanban/<id>[/<tab>].
+      // A `#task-<id>` reference link is an EXPLICIT in-page navigation and must
+      // outrank the path deep link. The panel keeps the address bar in sync with
+      // whatever is open (`/kanban/<id>`), so clicking a ref while a task is
+      // open used to fall through to the path branch and re-apply the CURRENT
+      // task — the click appeared to do nothing (measured: the panel title never
+      // left "Task Alpha"). Consuming the hash first restores ref navigation;
+      // the sync effect then rewrites the path to the new task.
+      const hashMatch = window.location.hash.match(/^#task-([a-f0-9]{30})$/i);
+      if (hashMatch) {
+        const refId = hashMatch[1].toLowerCase();
+        if (consumedHashTaskRef.current !== refId) {
+          const refTask = tasks.find((t) => t.id.toLowerCase() === refId);
+          if (refTask) {
+            consumedHashTaskRef.current = refId;
+            applyTaskTarget(refTask, "details");
+            // Drop the hash once consumed. Leaving `#task-X` in the URL
+            // alongside `/kanban/Y` gives the address bar two disagreeing
+            // sources of truth, and the back stack then re-reads the stale
+            // hash on the next navigation (measured: multi-level jumping
+            // A -> B -> A mis-sequenced its history). The path stays the
+            // single source, which the sync effect keeps current.
+            window.history.replaceState(
+              null,
+              "",
+              taskPanelUrl(refTask.id, "details"),
+            );
+            return;
+          }
+        }
+      }
+
+      // Canonical path link: /kanban/<id>[/<tab>].
       const deep = parseKanbanDeepLink(window.location.pathname);
       if (deep) {
         const key = panelHistoryKey(deep.taskId, deep.tab);

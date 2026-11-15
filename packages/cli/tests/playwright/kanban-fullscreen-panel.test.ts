@@ -175,6 +175,16 @@ describe("fullscreen detail panel (cba0ade6)", () => {
       await page.reload({ waitUntil: "domcontentloaded" });
       await page.waitForSelector("#kanban-board", { timeout: 15000 });
       await page.waitForTimeout(400);
+      // Deep links (main, ticket: kanban deep links) write `/kanban/<taskId>`
+      // when a card is opened, so this reload REOPENS that task — the board
+      // comes back with a panel already up, and in fullscreen mode it covers
+      // the columns, so the card click below is intercepted by it.
+      // This is the feature working, not the panel misbehaving: close the
+      // restored panel and assert step 3 on a clean board, exactly as before.
+      if (await page.locator("#detail-panel").isVisible().catch(() => false)) {
+        await page.keyboard.press("Escape");
+        await page.waitForSelector("#detail-panel", { state: "detached", timeout: 5000 });
+      }
 
       // 3. Server round-trip flipped the flag → reopen is windowed at the
       // exact seeded width (restore exactness, panelWidth never clobbered).
@@ -192,6 +202,16 @@ describe("fullscreen detail panel (cba0ade6)", () => {
       await page.reload({ waitUntil: "domcontentloaded" });
       await page.waitForSelector("#kanban-board", { timeout: 15000 });
       await page.waitForTimeout(400);
+      // Deep links (main, ticket: kanban deep links) write `/kanban/<taskId>`
+      // when a card is opened, so this reload REOPENS that task — the board
+      // comes back with a panel already up, and in fullscreen mode it covers
+      // the columns, so the card click below is intercepted by it.
+      // This is the feature working, not the panel misbehaving: close the
+      // restored panel and assert step 3 on a clean board, exactly as before.
+      if (await page.locator("#detail-panel").isVisible().catch(() => false)) {
+        await page.keyboard.press("Escape");
+        await page.waitForSelector("#detail-panel", { state: "detached", timeout: 5000 });
+      }
       await openPanel(page);
       probe = await probeContainer(page);
       expect(probe.fullscreen).toBe(true);
