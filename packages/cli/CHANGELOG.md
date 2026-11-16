@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.28.0
+
+### Minor Changes
+
+- 7a24e01: The kanban UI is a design system: tokens, primitives and utilities replace the
+  hand-written component CSS.
+
+  What a CLI user sees: the board, the detail panel and the overlay render from
+  one token set, so all six themes (dark, light, hc-dark, rose-pine-dawn, dracula,
+  gruvbox-dark) restyle every surface consistently. The stylesheet pipeline moved
+  to Tailwind v4, the board CSS is compiled from an explicit `@source` set instead
+  of a config file, and the overlay's shadow-root styling is inlined from the
+  same token source.
+
+  What does not change: task data, the CLI surface, drag-and-drop results, the
+  `data-*` hooks the browser suite binds to, and the persisted theme preference.
+
+  New primitives exported from the package: `Button`, `Badge`, `Input`,
+  `Textarea`, `Dialog`, `Popover`, `Tooltip`, `Select`, `Tabs` — each with a story
+  matrix and six-theme accessibility coverage.
+
+### Patch Changes
+
+- 324e42b: The children popover now uses the viewport instead of half of it, so a tall child list is actually readable: the 30-row cap shipped in 0.27.2 was still clamped to a 50vh box, which showed roughly half the rows on a normal screen. The popover picks the roomier side of its chip, never covers the anchor it hangs from, keeps its header pinned, and snaps its height to whole rows so the list does not end mid-row.
+- 324e42b: The expanded children tree no longer cuts a row in half. It shows 30 whole rows and scrolls inside the card for larger families, so every child is reachable — 60 children used to be clipped at 19 with the 20th sliced and the rest unreachable, because the inner wrapper had `overflow: hidden` rather than the scroll container itself. The children popover drops the "+N more" button entirely: it renders every child and scrolls the list instead of hiding rows behind a control.
+- 9eb48aa: The comment box keeps focus when you switch to the Activity tab. The title
+  focus timer re-armed on every tab change, and because the panel's own comment
+  box is excluded from the don't-steal-focus guard, clicking Activity pulled
+  focus back to the title 50 ms later — typing `Link to #alpha` straight away left
+  only `L` in the box. Focusing the title now happens only when a task is opened.
+- 3fb30ad: Shareable kanban task deep links: `/kanban/<task-id>` opens the task on the Details tab, with `/activity`, `/details` and `/files` selecting the panel tab (`/comments` is accepted as an alias of `/activity`). Unknown tab slugs fall back to Details and unknown ids render the plain board. The address bar stays in sync (replaceState) when opening, navigating and switching tabs, browser back to `/kanban` closes the panel, and legacy `#task-<id>` hash links keep working with path links taking precedence.
+- 7547839: The Add Task / Cancel footer no longer disappears on real phones. Two compounding causes, neither visible in desktop device emulation: `100vh` sizing resolves against the large viewport, so with the URL bar visible the panel extended below the fold and its footer hid behind the browser chrome — `100dvh` (with `vh` fallback) now tracks the visible height; and the shell viewport meta carries `interactive-widget=resizes-content`, so the on-screen keyboard shrinks the layout instead of covering the footer. The narrow-viewport footer also drops the 360px panel floor, wraps instead of clipping, clears the home indicator, and grows to a 36px touch target.
+
 ## 0.27.2
 
 ### Patch Changes
