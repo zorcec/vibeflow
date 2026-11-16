@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.28.0
+## 0.28.1
+
+> Same content as 0.28.0. 0.28.0 was published first and 0.28.1 re-numbers the
+> identical build so `latest` points at a version the repo also reflects; 0.28.0
+> is deprecated, not withdrawn.
+
 
 ### Minor Changes
 
