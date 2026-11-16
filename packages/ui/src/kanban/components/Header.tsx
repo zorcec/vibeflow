@@ -171,7 +171,9 @@ export function Header({
               {displayProjectName}
             </h1>
           </div>
-          <p className="text-[10px] font-mono mt-0.5 text-text-faint">
+          {/* `kb-header-summary` is a hook for the mobile block in kanban.css:
+              10px monospace is fine on a desk and unreadable on a phone. */}
+          <p className="kb-header-summary text-[10px] font-mono mt-0.5 text-text-faint">
             {taskSummary}
             {isLoading && (
               <span
@@ -381,8 +383,17 @@ export function Header({
       {/* Actions */}
       <div className="kb-header-actions flex items-center gap-2 flex-shrink-0">
         <div
+          // `id` is what aria-controls on the trigger points at. It was missing,
+          // so the reference dangled in every state (ticket 45a8e57c).
+          id="kb-header-actions-menu"
           className={`${mobileMenuOpen ? "kb-mobile-menu" : "kb-header-desktop-actions"} flex items-center gap-2`}
           aria-label={mobileMenuOpen ? "Board actions" : undefined}
+          // Tapping any item closes the phone menu. Without this, Settings
+          // opened its modal on top of a still-open 180px menu and closing the
+          // modal dropped the user back into that menu (ticket 45a8e57c).
+          onClick={() => {
+            if (mobileMenuOpen) setMobileMenuOpen(false);
+          }}
         >
           {extraActions}
           <HeaderActionButton

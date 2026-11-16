@@ -1405,6 +1405,7 @@ function KanbanColumn({
           ))
         ) : tasks.length === 0 ? (
           <div
+            className="kb-empty-column"
             style={{
               border: "1px dashed var(--t-border-faint)",
               borderRadius: 8,

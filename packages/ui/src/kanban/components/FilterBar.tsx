@@ -239,6 +239,7 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
       {/* Tags filter */}
       <div style={{ position: 'relative' }}>
         <button
+          className="kb-filter-trigger"
           style={{ ...dropBtn, color: (filter.tags ?? []).length ? 'var(--t-success-subtle)' : 'var(--t-text-faint)', borderColor: (filter.tags ?? []).length ? 'color-mix(in srgb, var(--t-success) 36%, transparent)' : 'var(--t-border)', opacity: allTagsInBoard.length ? 1 : 0.55 }}
           onClick={(e) => {
             e.stopPropagation();
@@ -309,6 +310,7 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
       {/* User filter */}
       <div style={{ position: 'relative' }}>
         <button
+          className="kb-filter-trigger"
           style={{ ...dropBtn, color: filter.user ? 'var(--t-chip-purple-300)' : 'var(--t-text-faint)', borderColor: filter.user ? 'color-mix(in srgb, var(--t-secondary) 36%, transparent)' : 'var(--t-border)', opacity: authors.length ? 1 : 0.55 }}
           onClick={(e) => {
             e.stopPropagation();
@@ -352,6 +354,7 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
           <Button
             variant="ghost"
             size="sm"
+            className="kb-filter-trigger"
             style={{ ...dropBtn, color: filter.type ? 'var(--t-cyan-soft)' : 'var(--t-text-faint)', borderColor: filter.type ? 'color-mix(in srgb, var(--t-accent) 36%, transparent)' : 'var(--t-border)', opacity: types.length ? 1 : 0.55 }}
             onClick={(e) => {
               e.stopPropagation();
@@ -396,7 +399,7 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
       </div>
 
       {/* View toggle */}
-      <div style={{ display:'flex', alignItems:'center', background:'var(--t-card)', border:'1px solid var(--t-border)', borderRadius:8, padding:2, gap:0 }}>
+      <div className="kb-view-toggle" style={{ display:'flex', alignItems:'center', background:'var(--t-card)', border:'1px solid var(--t-border)', borderRadius:8, padding:2, gap:0 }}>
         <button
           title="Board view"
           style={{ padding:'4px 7px', borderRadius:5, background: view === 'board' ? 'var(--t-surface)' : 'none', color: view === 'board' ? 'var(--t-text-sub)' : 'var(--t-text-body)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', transition:'background .12s,color .12s' }}

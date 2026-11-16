@@ -71,8 +71,12 @@ describe("kanban CSS — footer stays on real-device viewports", () => {
   });
 
   it("reflows the detail panel footer on narrow viewports", () => {
-    // No 360px floor forcing the panel wider than small phones…
-    expect(KANBAN_CSS).toContain("#detail-panel-container{min-width:0}");
+    // No 360px floor forcing the panel wider than small phones. Both panels
+    // share the rule since the activity feed stopped duplicating
+    // `#detail-panel-container` (ticket 45a8e57c), so the selector list grew.
+    expect(KANBAN_CSS).toContain(
+      "#detail-panel-container,#activity-panel-container{min-width:0}",
+    );
     // …footer wraps (create-mode badges share the row), clears the home
     // indicator, and hits a 36px touch target.
     expect(KANBAN_CSS).toContain("flex-wrap:wrap");

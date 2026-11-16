@@ -407,6 +407,10 @@ body.h-screen {
    drag handle. */
 .task-card-advance {
  opacity: 0;
+ /* Hidden AND unreachable. The reveal is gated to `hover: hover` + fine
+    pointers, but without this an invisible 22x22 button that changes the
+    task's lane stayed hit-testable on every touch device (ticket 45a8e57c). */
+ pointer-events: none;
  display: inline-flex;
  align-items: center;
  justify-content: center;
@@ -429,10 +433,12 @@ body.h-screen {
 @media (hover: hover) and (pointer: fine) {
  .task-card:hover .task-card-advance {
   opacity: 1;
+  pointer-events: auto;
  }
 }
 .task-card-advance:focus-visible {
  opacity: 1;
+ pointer-events: auto;
  outline: 2px solid color-mix(in srgb, var(--t-accent) 65%, transparent);
  outline-offset: 1px;
 }
@@ -814,7 +820,12 @@ body.h-screen {
 }
 
 /* ── Detail panel ── */
-#detail-panel-container {
+/* Two panels can be open at once — the task detail panel and the activity
+   feed — and each needs its own id (ticket 45a8e57c: both were rendered with
+   id="detail-panel-container", so getElementById was a coin flip and the feed
+   covered the task panel). Geometry is shared; `.fullscreen` is detail-only. */
+#detail-panel-container,
+#activity-panel-container {
  min-width: 360px;
  max-width: 100%;
  position: absolute;
@@ -827,7 +838,8 @@ body.h-screen {
  border-left: 1px solid var(--t-border);
  animation: panel-slide-in 0.18s ease-out;
 }
-#detail-panel-container.resizing {
+#detail-panel-container.resizing,
+#activity-panel-container.resizing {
  box-shadow: -12px 0 32px rgba(2, 8, 23, 0.6);
 }
 /* Fullscreen fills the positioned board root (both surfaces render the
@@ -847,7 +859,8 @@ body.h-screen {
 #detail-panel-container.fullscreen #detail-panel-resize-handle {
  display: none;
 }
-#detail-panel-resize-handle {
+#detail-panel-resize-handle,
+#activity-panel-resize-handle {
  position: absolute;
  left: 0;
  top: 0;
@@ -856,7 +869,8 @@ body.h-screen {
  cursor: ew-resize;
  z-index: 5;
 }
-#detail-panel-resize-handle:hover {
+#detail-panel-resize-handle:hover,
+#activity-panel-resize-handle:hover {
  background: linear-gradient(
   to right,
   rgba(59, 130, 246, 0.22),
@@ -2173,11 +2187,21 @@ body.proto-resizing-panel {
   .kb-header-identity > div:last-child {
     min-width: 0;
   }
+  /* One line each, both truncated: with a long board name the title wrapped
+     to two lines AND the counter wrapped into two more inside a ~120px
+     column, pushing the first task ~390px down a 844px screen (45a8e57c). */
   #header-project-name {
     max-width: 170px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .kb-header-summary {
+    font-size: 11px !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
   }
   .kb-header-search {
     order: 3;
@@ -2260,7 +2284,8 @@ body.proto-resizing-panel {
      36px touch target, and clears the home indicator via the safe-area
      inset (needs `viewport-fit=cover` in the shell meta, see
      kanban-template.ts). */
-  #detail-panel-container {
+  #detail-panel-container,
+  #activity-panel-container {
     min-width: 0;
   }
   .dp-footer {
@@ -2269,5 +2294,91 @@ body.proto-resizing-panel {
   }
   .dp-footer button {
     min-height: 36px;
+  }
+
+  /* ── Phone ergonomics (ticket 45a8e57c) ──
+     Measured at 390x844 and 360x640 in the hosted app. */
+
+  /* iOS Safari zooms into a field whose font-size is under 16px and does not
+     zoom back out; the board's own fields set 12-14px for desktop density. */
+  #global-search,
+  #dp-title,
+  .dp-input,
+  .dp-textarea,
+  #detail-panel-container select,
+  #detail-panel-container textarea,
+  #detail-panel-container input,
+  #activity-panel-container select,
+  #activity-panel-container textarea,
+  #activity-panel-container input {
+    font-size: 16px !important;
+  }
+
+  /* Thumb-sized targets: the menu trigger measured 36x36 and its rows 36px. */
+  .kb-mobile-menu-trigger {
+    width: 44px;
+    height: 44px;
+  }
+  .kb-mobile-menu button,
+  .kb-mobile-menu .kb-action-btn {
+    min-height: 44px;
+  }
+
+  /* Removed: a `padding-bottom: 64px` on the panes. `.dp-footer` is a
+     `flex-shrink: 0` SIBLING of `.dp-body`, not a sticky overlay, so it cannot
+     cover a pane — the rule only gave away 17% of the scroll height on a
+     640px screen (ticket 45a8e57c review). */
+
+  /* Tap targets measured 23-26px: status filter chips, the activity counter,
+     the Tags/User/Type triggers and the three view toggles. */
+  .kb-status-filters button,
+  #activity-counter,
+  .kb-filter-trigger,
+  .kb-view-toggle button {
+    min-height: 44px;
+  }
+  .kb-view-toggle button {
+    min-width: 44px;
+  }
+
+  /* "Boards" breadcrumb measured 38x16 — the smallest control in the header. */
+  #header-back-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding-inline: 4px;
+  }
+
+  /* The list-view group collapse toggle is 18x18 and has no larger parent
+     handler, so the button itself must be thumb-sized on a phone. */
+  .kb-group-toggle {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Text that measured 10-11.5px on a phone. */
+  [data-role="card-title"] {
+    font-size: 12px !important;
+  }
+  .kb-empty-column {
+    font-size: 12px !important;
+  }
+  .dp-status-btn {
+    font-size: 11px !important;
+  }
+
+  /* A long title now wraps to two lines instead of being cut mid-word at
+     ~184px while the row leaves a wide empty gutter. */
+  .kb-list-title-block {
+    flex: 1 1 auto;
+  }
+  .kb-list-title,
+  [data-role="card-title"] {
+    white-space: normal !important;
+    display: -webkit-box !important;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    line-height: 1.35;
   }
 }

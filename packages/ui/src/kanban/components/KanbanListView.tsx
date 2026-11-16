@@ -277,6 +277,7 @@ export function KanbanListView({
                   }}
                 >
                   <Button
+                    className="kb-group-toggle"
                     variant="ghost"
                     size="sm"
                     type="button"
@@ -487,10 +488,14 @@ function ListRow({
         {typeIcon}
       </span>
 
-      {/* Title + description */}
-      <div style={{ minWidth: 0 }}>
+      {/* Title + description. `flex: 1` via the class matters: without it the
+          block shrink-wrapped to its own content and a long title was cut at
+          ~184px on a 390px phone while the row left a wide empty gutter
+          (ticket 45a8e57c). */}
+      <div className="kb-list-title-block" style={{ minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span
+            className="kb-list-title"
             style={{
               fontSize: 13,
               fontWeight: 500,

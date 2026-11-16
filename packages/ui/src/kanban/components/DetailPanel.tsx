@@ -2367,7 +2367,10 @@ export function DetailPanel({
             >
               You have an unsent comment. Do you want to send it before closing?
             </p>
-            <div style={{ display: "flex", gap: 8 }}>
+            {/* Three nowrap buttons need ~305px plus gaps; the 360px-phone
+                content box is ~296px, so the row overflowed its own dialog with
+                no scroll (ticket 45a8e57c). Wrapping keeps all three reachable. */}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
                 onClick={() => {
                   setShowCommentSendConfirm(false);
