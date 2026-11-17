@@ -41,6 +41,22 @@ export function Header({
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const [dropdownIdx, setDropdownIdx] = React.useState(0);
+  // `mobileMenuOpen` drives a CLASS, but the two classes are made exclusive by a
+  // media query rather than by state: rotating an iPad (or resizing a window)
+  // past 768px with the menu open left the container on `.kb-mobile-menu`, whose
+  // base rule is `display: none` at every width — Members, `? shortcuts` and
+  // Settings vanished on desktop with `aria-expanded="true"` on a hidden
+  // trigger (ticket 45a8e57c review).
+  React.useEffect(() => {
+    if (!mobileMenuOpen || typeof window === "undefined" || !window.matchMedia) return;
+    const desktop = window.matchMedia("(min-width: 768px)");
+    const close = () => {
+      if (desktop.matches) setMobileMenuOpen(false);
+    };
+    close();
+    desktop.addEventListener("change", close);
+    return () => desktop.removeEventListener("change", close);
+  }, [mobileMenuOpen]);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const dropdownRef = React.useRef<HTMLDivElement>(null);
 
@@ -387,25 +403,33 @@ export function Header({
           // so the reference dangled in every state (ticket 45a8e57c).
           id="kb-header-actions-menu"
           className={`${mobileMenuOpen ? "kb-mobile-menu" : "kb-header-desktop-actions"} flex items-center gap-2`}
+          // A bare <div> maps to aria role `generic`, which must not be named:
+          // axe reports `aria-prohibited-attr`. `role="group"` is the cheapest
+          // legal host for the label the tests already query.
+          role="group"
           aria-label={mobileMenuOpen ? "Board actions" : undefined}
-          // Tapping any item closes the phone menu. Without this, Settings
-          // opened its modal on top of a still-open 180px menu and closing the
-          // modal dropped the user back into that menu (ticket 45a8e57c).
-          onClick={() => {
-            if (mobileMenuOpen) setMobileMenuOpen(false);
-          }}
         >
           {extraActions}
           <HeaderActionButton
             id="header-shortcuts-hint"
             title="Click to see keyboard shortcuts"
-            onClick={() => setShortcutsOpen(true)}
+            // Close the phone menu when one of ITS items is chosen. This used to
+            // live on the container, which also fired for `extraActions` (the
+            // web app's Members button) and could unmount a child popover's own
+            // anchor (ticket 45a8e57c review).
+            onClick={() => {
+              setShortcutsOpen(true);
+              if (mobileMenuOpen) setMobileMenuOpen(false);
+            }}
             label="? shortcuts"
           />
           <HeaderActionButton
             id="btn-settings"
             title="Settings"
-            onClick={onSettings}
+            onClick={() => {
+              onSettings?.();
+              if (mobileMenuOpen) setMobileMenuOpen(false);
+            }}
             icon={<Settings className="w-3.5 h-3.5" />}
           />
         </div>

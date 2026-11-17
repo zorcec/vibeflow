@@ -1,32 +1,39 @@
 /* ══════════════════════════════════════════════════════════════
-   !important INVENTORY (audited 2026-11-14)
+   !important INVENTORY
 
-   The design-system rebuild treats !important as debt, so each of
-   these was reviewed rather than assumed necessary. All seven stay:
-   deleting any of them needs a test for the state it protects, and
-   several of those states (drag, orphan rows, narrow viewport) are
-   not reachable from a story.
+   The design-system rebuild treats !important as debt, so each use
+   falls into exactly one of three buckets. A declaration that fits
+   none of them does not belong here.
 
-   1. .task-card.dragging … .child-toggle-label { display: block }
-      Deliberately beats the MORE specific `:hover` rule eight lines
-      above, which hides the label. Intent: while the card is being
-      dragged, the label never hides, so dragstart cannot reflow the
-      card. Removing it re-introduces that reflow only in the
-      drag+hover state — invisible to every test we have.
+   A. It overrides an INLINE style. An inline declaration outranks every
+      stylesheet rule, so without !important the rule is inert — not merely
+      weaker. This is the strongest reason and the most common one:
+        1. .task-card.dragging … .child-toggle-label { display: block }
+        2. .child-link-dot--hollow { background: transparent }
+        3. .child-row--orphan { border-left: dashed }
+        4. .child-row-wrap--inline .card-copy-id--child { border-radius: 0 }
+        5. #header-project-name / .kb-list-title / [data-role="card-title"]
+           { white-space, font-size }  (max-width MQ — the components set
+           whiteSpace/nowrap and 10-11.5px inline)
+        6. .kb-filter-bar { padding, gap }        (max-width MQ — inline)
+        7. #kanban-list-view { padding }          (max-width MQ — inline)
+        8. .ws-/kb- field font-size: 16px         (max-width MQ — inline 12-14px;
+           this one is the iOS focus-zoom floor)
+        9. .kb-empty-column { font-size }         (max-width MQ — inline 11px)
 
-   2. .child-link-dot--hollow { background: transparent }
-   3. .child-row--orphan { border-left: dashed }
-   4. .child-row-wrap--inline .card-copy-id--child { border-radius: 0 }
-      All three override an INLINE style written by the component.
-      An inline declaration outranks any stylesheet rule, so without
-      !important the rule is inert — not merely weaker.
+   B. It must beat a MORE specific rule that would otherwise win.
+       10. .task-card.dragging's label rule above (bucket A) also has to beat
+           the :hover rule eight lines up; recorded there, not repeated here.
 
-   5. .kb-header-desktop-actions { display: none }   (max-width MQ)
-   6. .kb-filter-bar { padding, gap }                (max-width MQ)
-   7. #kanban-list-view { padding }                  (max-width MQ)
-      The desktop rules they override use equal or higher
-      specificity and sit later in the file, so source order plus
-      !important is what makes the mobile layout win.
+   C. It replaces a value the same file sets earlier at equal specificity.
+      Source order alone would do, so these are the weakest cases — kept
+      only where a later rule in another media query could reintroduce the
+      old value.
+       11. .dp-status-btn { font-size }           (max-width MQ)
+       12. .kb-header-summary { font-size }       (max-width MQ)
+
+   Deleting any of these needs a test for the state it protects; several
+   (drag, orphan rows, narrow viewport) are not reachable from a story.
    ══════════════════════════════════════════════════════════════ */
 
 /* NOTE (design-system P1): this shared stylesheet carries NO Tailwind
@@ -433,6 +440,17 @@ body.h-screen {
 @media (hover: hover) and (pointer: fine) {
  .task-card:hover .task-card-advance {
   opacity: 1;
+  pointer-events: auto;
+ }
+}
+/* Primary-touch devices (iPad, Android tablets) never match `hover: hover`, so
+   the reveal above never fires: without this branch the advance control is
+   invisible AND (since the pointer-events fix) untappable — and at >=768px the
+   board view is the default, so those users would lose the only way to move a
+   card between lanes (ticket 45a8e57c review). Visible, not a blind target. */
+@media (hover: none), (pointer: coarse) {
+ .task-card-advance {
+  opacity: 0.6;
   pointer-events: auto;
  }
 }
@@ -2197,7 +2215,7 @@ body.proto-resizing-panel {
     white-space: nowrap;
   }
   .kb-header-summary {
-    font-size: 11px !important;
+    font-size: 11px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2220,8 +2238,9 @@ body.proto-resizing-panel {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
+    /* Measured 36x36; a phone needs 44 (ticket 45a8e57c). */
+    width: 44px;
+    height: 44px;
     border: 1px solid var(--t-border);
     border-radius: 8px;
     color: var(--t-text-muted);
@@ -2245,7 +2264,7 @@ body.proto-resizing-panel {
   .kb-mobile-menu button,
   .kb-mobile-menu .kb-action-btn {
     width: 100%;
-    min-height: 36px;
+    min-height: 44px;
     justify-content: flex-start;
     text-align: left;
   }
@@ -2292,6 +2311,10 @@ body.proto-resizing-panel {
     flex-wrap: wrap;
     padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }
+  /* Deliberately 36px, not 44: the footer shares its row with the create-mode
+     paste/screenshot badges and the pending-count text, and at 360px a 44px row
+     wraps and pushes the primary action off-screen (ticket 45a8e57c review —
+     the one control in this block that stays below the thumb-size guideline). */
   .dp-footer button {
     min-height: 36px;
   }
@@ -2300,34 +2323,23 @@ body.proto-resizing-panel {
      Measured at 390x844 and 360x640 in the hosted app. */
 
   /* iOS Safari zooms into a field whose font-size is under 16px and does not
-     zoom back out; the board's own fields set 12-14px for desktop density. */
+     zoom back out; the board's own fields set 12-14px for desktop density.
+     `#dp-title` is `.dp-input` and a descendant of the panel, and `.dp-textarea`
+     is inside it too, so only the toolbar search needs naming (ticket
+     45a8e57c review). */
   #global-search,
-  #dp-title,
-  .dp-input,
-  .dp-textarea,
+  #detail-panel-container input,
   #detail-panel-container select,
   #detail-panel-container textarea,
-  #detail-panel-container input,
+  #activity-panel-container input,
   #activity-panel-container select,
-  #activity-panel-container textarea,
-  #activity-panel-container input {
+  #activity-panel-container textarea {
     font-size: 16px !important;
   }
 
-  /* Thumb-sized targets: the menu trigger measured 36x36 and its rows 36px. */
-  .kb-mobile-menu-trigger {
-    width: 44px;
-    height: 44px;
-  }
-  .kb-mobile-menu button,
-  .kb-mobile-menu .kb-action-btn {
-    min-height: 44px;
-  }
 
-  /* Removed: a `padding-bottom: 64px` on the panes. `.dp-footer` is a
-     `flex-shrink: 0` SIBLING of `.dp-body`, not a sticky overlay, so it cannot
-     cover a pane — the rule only gave away 17% of the scroll height on a
-     640px screen (ticket 45a8e57c review). */
+  /* Do not pad the panes: `.dp-footer` is a `flex-shrink: 0` sibling of
+     `.dp-body`, not a sticky overlay, so it cannot cover their content. */
 
   /* Tap targets measured 23-26px: status filter chips, the activity counter,
      the Tags/User/Type triggers and the three view toggles. */
@@ -2349,6 +2361,35 @@ body.proto-resizing-panel {
     padding-inline: 4px;
   }
 
+  /* The app-wide 16px/44px field rule (globals.css on the hosted surface, the
+     block above on the CLI surface) makes the title input 44px tall, but the
+     type-picker beside it is a fixed 30px and top-aligns — the picker has to
+     grow with its row or the field looks broken. */
+  .dp-title-field .type-picker-trigger {
+    height: 44px;
+  }
+
+  /* The detail panel's header trio measured 26x26 (the audit only surfaced
+     them at the 390px pass). They carry an inline `width/height: 26`, and
+     `min-width`/`min-height` outrank a plain `width`/`height`, so no component
+     change is needed. */
+  #dp-back,
+  #dp-fullscreen-toggle,
+  #dp-close {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* The per-group "Add task to …" button measured 22x22 and the "Add comment"
+     button in a row measured 16x12 — both are real controls, so they get a
+     thumb-sized box (the icon inside stays small). */
+  #kanban-list-view [title^="Add task to"],
+  #kanban-list-view [title$="comment(s)"],
+  #kanban-list-view [title="Add comment"] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
   /* The list-view group collapse toggle is 18x18 and has no larger parent
      handler, so the button itself must be thumb-sized on a phone. */
   .kb-group-toggle {
@@ -2356,11 +2397,10 @@ body.proto-resizing-panel {
     min-height: 44px;
   }
 
-  /* Text that measured 10-11.5px on a phone. */
+  /* Text that measured 10-11.5px on a phone (one rule, one value — these were
+     three separate declarations for the same property). */
+  .kb-empty-column,
   [data-role="card-title"] {
-    font-size: 12px !important;
-  }
-  .kb-empty-column {
     font-size: 12px !important;
   }
   .dp-status-btn {
@@ -2368,14 +2408,13 @@ body.proto-resizing-panel {
   }
 
   /* A long title now wraps to two lines instead of being cut mid-word at
-     ~184px while the row leaves a wide empty gutter. */
-  .kb-list-title-block {
-    flex: 1 1 auto;
-  }
+     ~184px. (`.kb-list-title-block` was given `flex: 1 1 auto` here first; that
+     is inert — the row is a CSS grid and the block already owns the `1fr`
+     column — so it is gone rather than left as decoration.) */
   .kb-list-title,
   [data-role="card-title"] {
     white-space: normal !important;
-    display: -webkit-box !important;
+    display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     overflow: hidden;

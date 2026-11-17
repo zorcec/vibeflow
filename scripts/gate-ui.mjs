@@ -40,7 +40,11 @@ const steps = [
   },
   {
     name: "storybook build",
-    cmd: ["pnpm", "--filter", "@vibeflow-tools/ui", "run", "build-storybook"],
+    // The script is `storybook:build` in packages/ui/package.json; this gate
+    // called `build-storybook`, which no package defines, so the gate could
+    // never pass and its last stage always reported FAIL (found while
+    // reviewing the phone-width work, ticket 45a8e57c).
+    cmd: ["pnpm", "--filter", "@vibeflow-tools/ui", "run", "storybook:build"],
     why: "the static build is a shipping artefact; a broken one is a broken docs surface",
   },
   {

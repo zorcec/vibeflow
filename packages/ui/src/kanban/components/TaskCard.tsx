@@ -266,8 +266,16 @@ export const CARD_TITLE_TIP_MAX_W = 240;
 export function isTitleTruncated(
       scrollWidth: number,
       clientWidth: number,
+      scrollHeight?: number,
+      clientHeight?: number,
 ): boolean {
-      return scrollWidth > clientWidth + 1;
+      // Horizontal overflow is the desktop case (nowrap + ellipsis). On a phone
+      // the title wraps into a two-line `-webkit-line-clamp`, so the cut is on
+      // the Y axis and scrollWidth === clientWidth — a 3-line title reported
+      // "not truncated" and its tooltip never appeared (ticket 45a8e57c).
+      if (scrollWidth > clientWidth + 1) return true;
+      if (scrollHeight === undefined || clientHeight === undefined) return false;
+      return scrollHeight > clientHeight + 1;
 }
 /**
  * Card title with full-title-on-hover tooltip (ticket 0614a29e). Renders
@@ -305,7 +313,12 @@ export function CardTitle({
             const el = titleRef.current;
             if (
                   !el ||
-                  !isTitleTruncated(el.scrollWidth, el.clientWidth)
+                  !isTitleTruncated(
+                        el.scrollWidth,
+                        el.clientWidth,
+                        el.scrollHeight,
+                        el.clientHeight,
+                  )
             ) {
                   return;
             }

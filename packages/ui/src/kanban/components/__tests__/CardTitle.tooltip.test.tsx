@@ -37,7 +37,12 @@ function renderCard(task: Task) {
 }
 
 /** Script the layout numbers jsdom cannot compute (all widths are 0 there). */
-function mockTruncation(scrollWidth: number, clientWidth: number) {
+function mockTruncation(
+  scrollWidth: number,
+  clientWidth: number,
+  scrollHeight = 0,
+  clientHeight = 0,
+) {
   const el = screen.getByText(LONG_TITLE, {
     selector: '[data-role="card-title"]',
   }) as HTMLElement;
@@ -47,6 +52,14 @@ function mockTruncation(scrollWidth: number, clientWidth: number) {
   });
   Object.defineProperty(el, "clientWidth", {
     value: clientWidth,
+    configurable: true,
+  });
+  Object.defineProperty(el, "scrollHeight", {
+    value: scrollHeight,
+    configurable: true,
+  });
+  Object.defineProperty(el, "clientHeight", {
+    value: clientHeight,
     configurable: true,
   });
   return el;
@@ -73,9 +86,25 @@ describe("isTitleTruncated (0614a29e)", () => {
   it("reports fitting for an empty title", () => {
     expect(isTitleTruncated(0, 0)).toBe(false);
   });
+  // On a phone the title wraps into a two-line -webkit-line-clamp, so the cut
+  // moves to the Y axis and the box reports no horizontal overflow at all. A
+  // 3-line title that is visually clipped must still get its tooltip.
+  it("reports truncated when the box is clamped vertically (phone wrap)", () => {
+    expect(isTitleTruncated(211, 211, 48, 31)).toBe(true);
+  });
+  it("reports fitting when the vertical measurement is absent", () => {
+    expect(isTitleTruncated(211, 211)).toBe(false);
+  });
 });
 
 describe("card title tooltip (0614a29e)", () => {
+  it("reveals the full title when the box is only clamped vertically", () => {
+    renderCard(makeTask());
+    mockTruncation(211, 211, 48, 31);
+    hoverTitle();
+    expect(screen.getByText(LONG_TITLE, { selector: '[data-role="card-title-tip"]' })).toBeTruthy();
+  });
+
   it("reveals the FULL title on hover when the title is truncated", () => {
     renderCard(makeTask());
     expect(
