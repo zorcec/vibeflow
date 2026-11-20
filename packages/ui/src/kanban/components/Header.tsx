@@ -448,6 +448,20 @@ export function Header({
 
       </div>
 
+      {/* MOBILE-KANBAN M1 (ticket k2x2agpos66jpsggi1owj1er): mount point for
+          the phone lane toggle. KanbanBoard — the component that owns lane
+          state — portals the lane pills into this slot at <=767px, so the
+          toggle lives in the sticky header on both consuming surfaces with
+          no host wiring. kanban.css hides the slot at every width by default
+          and reveals it in the narrow block; `:empty` keeps it invisible
+          whenever no board has portaled into it. */}
+      <div
+        id="kb-lane-pills"
+        className="kb-lane-pills"
+        role="group"
+        aria-label="Switch lane"
+      />
+
       {/* Keyboard Shortcuts modal */}
       {shortcutsOpen && (
         <div

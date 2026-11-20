@@ -273,7 +273,21 @@ describe("Kanban board", () => {
     for (const width of [360, 390]) {
       await page.setViewportSize({ width, height: 844 });
       await page.reload();
-      await page.waitForSelector(`#kanban-list-view [data-task-id="${taskId}"]`);
+      // MOBILE-KANBAN M1 (ticket k2x2agpos66jpsggi1owj1er): at <=767px the
+      // phone renders the BOARD — one lane at a time, list/compact gone —
+      // with the lane pills in the sticky header as the primary toggle.
+      await page.waitForSelector("#kanban-board");
+      expect(await page.locator("#kanban-board .board-column").count()).toBe(1);
+      const pills = page.locator(
+        "header.kb-header #kb-lane-pills .kb-lane-pill",
+      );
+      expect(await pills.count()).toBe(5);
+      // Default mounted lane is the first visible one (Backlog); tapping a
+      // pill swaps which single lane is mounted — the task lives in Todo.
+      await pills.filter({ hasText: "Todo" }).click();
+      await page.waitForSelector(
+        '#kanban-board .board-column[data-column-id="todo"]',
+      );
       const pageWidth = await page.evaluate(() => ({
         viewport: window.innerWidth,
         document: document.documentElement.scrollWidth,
@@ -285,15 +299,15 @@ describe("Kanban board", () => {
       expect(await page.locator("#btn-settings").isVisible()).toBe(true);
       await page.getByRole("button", { name: "Open board menu" }).click();
 
-      const status = page.locator(`#kanban-list-view [data-task-id="${taskId}"] select`);
-      await status.selectOption("review");
+      // Non-drag status move on a phone: the detail panel's status buttons
+      // (the list row's `select` left with the list view at <=767px).
+      await openTaskByTitle(page, "Mobile layout task");
+      await page.click('#detail-panel .dp-status-btn[data-status="review"]');
       await page.waitForFunction(async (id) => {
         const response = await fetch(`/api/tasks/${id}`);
         const value = await response.json();
         return value.task?.status === "review";
       }, taskId);
-      await page.locator(`#kanban-list-view [data-task-id="${taskId}"]`).click();
-      await page.waitForSelector("#detail-panel.open #dp-title");
       const title = page.locator("#dp-title");
       await title.fill("Edited mobile layout task");
       await title.press("Tab");

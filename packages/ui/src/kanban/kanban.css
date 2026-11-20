@@ -2189,6 +2189,15 @@ body.proto-resizing-panel {
 .kb-mobile-menu {
   display: none;
 }
+/* MOBILE-KANBAN M1 (ticket k2x2agpos66jpsggi1owj1er): the lane-toggle slot
+   the shared Header renders. Hidden at EVERY width until the narrow block
+   below reveals it — the desktop header keeps its exact layout (an empty,
+   display:none div) and a portal can never leak phone pills onto a wide
+   screen. The narrow block's `.kb-lane-pills:empty` hides the slot again
+   when no board has portaled into it. */
+.kb-lane-pills {
+  display: none;
+}
 @media (max-width: 767px) {
   .kb-header {
     padding: 8px 10px;
@@ -2342,15 +2351,13 @@ body.proto-resizing-panel {
      `.dp-body`, not a sticky overlay, so it cannot cover their content. */
 
   /* Tap targets measured 23-26px: status filter chips, the activity counter,
-     the Tags/User/Type triggers and the three view toggles. */
+     and the Tags/User/Type triggers. (The three view toggles were in this
+     rule too; they are removed at <=767px — MOBILE-KANBAN M1, kanban is the
+     only phone view — so their 44px box went with them.) */
   .kb-status-filters button,
   #activity-counter,
-  .kb-filter-trigger,
-  .kb-view-toggle button {
+  .kb-filter-trigger {
     min-height: 44px;
-  }
-  .kb-view-toggle button {
-    min-width: 44px;
   }
 
   /* "Boards" breadcrumb measured 38x16 — the smallest control in the header. */
@@ -2419,5 +2426,97 @@ body.proto-resizing-panel {
     -webkit-line-clamp: 2;
     overflow: hidden;
     line-height: 1.35;
+  }
+
+  /* ── MOBILE-KANBAN M1 (ticket k2x2agpos66jpsggi1owj1er): one lane at a
+     time, lane pills in the sticky header, kanban view only. ──
+     Lane pills: the Header owns the slot (`#kb-lane-pills`, base rule
+     above), KanbanBoard portals the buttons in. `order: 4` + `flex: 1 0
+     100%` put the row on its own line at the bottom of the wrapping header
+     (the search field owns `order: 3`), so the pills sit in the sticky
+     header while the lane scrolls underneath. The row itself scrolls its
+     pills sideways when they do not fit — the page/board never do. */
+  .kb-lane-pills {
+    order: 4;
+    flex: 1 0 100%;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .kb-lane-pills::-webkit-scrollbar {
+    display: none;
+  }
+  /* No board portaled in — never show an empty strip. */
+  .kb-lane-pills:empty {
+    display: none;
+  }
+  /* 44px min-height, not the prototype's 36: the phone block's audited
+     tap-target floor (45a8e57c) is 44px, and the pills are primary
+     controls. */
+  .kb-lane-pill {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 6px 12px;
+    border: 1px solid var(--t-border);
+    border-radius: 999px;
+    background: var(--t-card);
+    color: var(--t-text-muted);
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .kb-lane-pill--active {
+    border-color: var(--t-accent);
+    background: color-mix(in srgb, var(--t-accent) 14%, transparent);
+    color: var(--t-text);
+  }
+  .kb-lane-pill-dot {
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .kb-lane-pill-count {
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--t-border);
+    color: var(--t-text-muted);
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .kb-lane-pill--active .kb-lane-pill-count {
+    background: var(--t-accent);
+    color: var(--t-bg);
+  }
+
+  /* One lane fills the strip: the 320px desktop floor (which exists so a
+     multi-lane strip scrolls instead of squeezing) would push a sub-360px
+     phone into the board's horizontal scrollbar, and phones must not scroll
+     the board sideways (spec point 2). The base rule keeps the floor at
+     every width >=768px. The `#kanban-board ` prefix keeps the selector
+     phone-scoped so it can never be read as the base `.board-column`.
+     ADR-0002 phone carve-out (2026-11-21). */
+  #kanban-board .board-column {
+    min-width: 0;
+  }
+
+  /* Kanban only (spec point 4): list and compact are removed on phones, so
+     the view toggle goes with them — inline `display: flex` needs
+     `!important` to yield (same trick as `.kb-header-desktop-actions`). */
+  .kb-view-toggle {
+    display: none !important;
+  }
+
+  /* No horizontal board scroll on a phone → the custom strip scrollbar has
+     nothing to move, and its fixed 6px hit strip would swallow taps on the
+     bottom edge of the last card. */
+  #kanban-scroll-track {
+    display: none;
   }
 }

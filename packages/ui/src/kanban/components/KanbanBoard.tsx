@@ -1,6 +1,8 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import { Plus } from "lucide-react";
 import type { Task, Column, TaskStatus, LiveActivity } from "../types";
+import { MOBILE_VIEWPORT_MAX_WIDTH } from "../viewState";
 import { TaskCard, nextLaneStatus } from "./TaskCard";
 import { laneReservesLeadingSlot } from "./TaskCardLeadingSlot";
 import {
@@ -315,6 +317,28 @@ export function dragAutoScrollDelta(
   return 0;
 }
 
+/**
+ * Phone-width detector for MOBILE-KANBAN M1 (ticket k2x2agpos66jpsggi1owj1er):
+ * at <=767px the board mounts ONE lane at a time and portals the lane pills
+ * into the sticky header. Starts `false` — the multi-lane strip is the
+ * desktop-identical first commit (and the SSR/hydration-safe one; jsdom has
+ * no `matchMedia`, so every existing test stays on the desktop path) — then
+ * tracks the media query across resizes.
+ */
+function usePhoneViewport(): boolean {
+  const [isPhone, setIsPhone] = React.useState(false);
+  React.useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function")
+      return;
+    const mq = window.matchMedia(`(max-width: ${MOBILE_VIEWPORT_MAX_WIDTH}px)`);
+    const sync = () => setIsPhone(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  return isPhone;
+}
+
 interface Props {
   tasks: Task[];
   visibleCols: TaskStatus[];
@@ -418,6 +442,26 @@ export function KanbanBoard({
 }: Props) {
   const boardRef = React.useRef<HTMLElement>(null);
   const thumbRef = React.useRef<HTMLDivElement>(null);
+  /** MOBILE-KANBAN M1: true only while the viewport is <=767px (see
+   * `usePhoneViewport`). `activeLaneId` is the phone's lane pick — null
+   * until the user taps a pill, so the first visible lane is the default. */
+  const isPhone = usePhoneViewport();
+  const [activeLaneId, setActiveLaneId] = React.useState<TaskStatus | null>(null);
+  /** The Header renders `#kb-lane-pills`; the pills are portaled there so
+   * the toggle lives inside the sticky header (both surfaces, no host
+   * wiring). Re-resolved after every render while on a phone so a
+   * late-mounted Header is still found; `getElementById` returns the same
+   * element, so the state settles instead of looping. */
+  const [laneToggleHost, setLaneToggleHost] = React.useState<HTMLElement | null>(
+    null,
+  );
+  React.useEffect(() => {
+    if (!isPhone || typeof document === "undefined") {
+      setLaneToggleHost(null);
+      return;
+    }
+    setLaneToggleHost(document.getElementById("kb-lane-pills"));
+  });
   /** Single drop-intent ref — replaces the 4-state+4-ref lockstep.
    * Every dragover handler OVERWRITES its own intent (card/zone/column).
    * No handler nulls another handler's intent; the next hover overwrites.
@@ -444,6 +488,14 @@ export function KanbanBoard({
   const filtered = filterTasksByQuery(tasks, searchQuery);
 
   const cols = COLUMNS.filter((c) => visibleCols.includes(c.id));
+
+  // MOBILE-KANBAN M1 (<=767px): the main area is exactly ONE lane — the
+  // picked one while it stays visible, otherwise the first visible lane.
+  // Only the active lane is MOUNTED (no lazy/virtual loading: its cards
+  // render up front), so the strip has nothing to scroll sideways.
+  const activeCol =
+    (activeLaneId && cols.find((c) => c.id === activeLaneId)) || cols[0];
+  const renderedCols = isPhone ? (activeCol ? [activeCol] : []) : cols;
 
   // Custom scrollbar sync
   React.useEffect(() => {
@@ -507,7 +559,7 @@ export function KanbanBoard({
       ro.disconnect();
       thumb.removeEventListener("mousedown", onMouseDown);
     };
-  }, [cols.length]);
+  }, [renderedCols.length]);
 
   // Belt-and-braces: window-level dragend catches stale sessions when the
   // source element unmounts mid-drag (e.g. tree-row drag ends outside a valid
@@ -963,6 +1015,44 @@ export function KanbanBoard({
 
   return (
     <>
+      {/* MOBILE-KANBAN M1: the phone lane toggle. Portaled into the Header's
+          slot (the Header cannot know the lanes; the board cannot reach up
+          into the header without this). Desktop never renders it — `isPhone`
+          is false and kanban.css hides the slot at >=768px anyway. */}
+      {isPhone && laneToggleHost && activeCol
+        ? createPortal(
+            cols.map((col) => {
+              const count = isLoading
+                ? null
+                : col.id === "done" && doneTotal != null
+                  ? doneTotal
+                  : allStandalone.filter((t) => t.status === col.id).length;
+              const selected = col.id === activeCol.id;
+              return (
+                <button
+                  key={col.id}
+                  type="button"
+                  className={`kb-lane-pill${
+                    selected ? " kb-lane-pill--active" : ""
+                  }`}
+                  data-status={col.id}
+                  aria-pressed={selected}
+                  onClick={() => setActiveLaneId(col.id)}
+                >
+                  <span
+                    className="kb-lane-pill-dot"
+                    style={{ background: col.color }}
+                  />
+                  <span className="kb-lane-pill-label">{col.label}</span>
+                  {count === null ? null : (
+                    <span className="kb-lane-pill-count">{count}</span>
+                  )}
+                </button>
+              );
+            }),
+            laneToggleHost,
+          )
+        : null}
       <main
         id="kanban-board"
         ref={boardRef}
@@ -980,7 +1070,7 @@ export function KanbanBoard({
         }}
         onDragEnd={handleDragEnd}
       >
-        {cols.map((col) => {
+        {renderedCols.map((col) => {
           const colTasks = isLoading
             ? []
             : allStandalone.filter((t) => t.status === col.id);

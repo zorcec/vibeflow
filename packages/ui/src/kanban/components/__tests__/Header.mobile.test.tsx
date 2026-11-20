@@ -140,6 +140,9 @@ describe("shared mobile header and filter reflow", () => {
     expect(view.getByRole("button", { name: "All" })).toBeTruthy();
     expect(view.getByRole("button", { name: "Tags" })).toBeTruthy();
     expect(view.getByRole("button", { name: "User" })).toBeTruthy();
+    // Desktop contract: the toggle still EXISTS in the DOM (>=768px keeps
+    // all three views). That it is HIDDEN at <=767px — M1, kanban-only
+    // phones — is pinned in the dedicated test below.
     expect(view.getByRole("button", { name: "Board view" })).toBeTruthy();
 
     // PORTED from stylesheet-text regexes to parsed CSSOM rules.
@@ -165,5 +168,59 @@ describe("shared mobile header and filter reflow", () => {
     expect(flexTriple(ruleIn(media, ".kb-status-filters").style)).toMatch(
       /1\s+0\s+100%/,
     );
+  });
+
+  /** The base (any-width) rule for one selector, outside every media block. */
+  function baseRule(selector: string): CSSStyleRule {
+    const found: CSSStyleRule[] = [];
+    for (const sheet of Array.from(document.styleSheets)) {
+      for (const rule of Array.from(sheet.cssRules)) {
+        if (
+          rule instanceof CSSStyleRule &&
+          rule.parentRule === null &&
+          rule.selectorText.split(",").map((s) => s.trim()).includes(selector)
+        ) {
+          found.push(rule);
+        }
+      }
+    }
+    expect(found, `base rule "${selector}" must exist`).not.toEqual([]);
+    return found[0];
+  }
+
+  /**
+   * MOBILE-KANBAN M1 (ticket k2x2agpos66jpsggi1owj1er): the phone header
+   * carries the lane toggle and NOT the view toggle. The lane pill SLOT is
+   * the Header's half of the contract (KanbanBoard portals the pills in —
+   * the board half lives in KanbanBoard.mobile-lane.test.tsx); the
+   * view-toggle disappearance is this file's half, since the old
+   * "view controls on a phone" guard was exactly what M1 removed.
+   */
+  it("hosts the lane-toggle slot and drops the view toggle at <=767px", () => {
+    const view = renderHeader();
+
+    // Header owns the mount point the board portals into.
+    const slot = view.container.querySelector("#kb-lane-pills");
+    expect(slot, "the Header must render the lane-pill slot").not.toBeNull();
+    expect(slot!.className).toBe("kb-lane-pills");
+    expect(slot!.getAttribute("role")).toBe("group");
+    expect(slot!.getAttribute("aria-label")).toBe("Switch lane");
+
+    const media = narrowMedia();
+    // Revealed only inside the narrow block, on its own wrapped header line
+    // (order 4 — the search field owns order 3) …
+    const slotRule = ruleIn(media, ".kb-lane-pills");
+    expect(slotRule.style.display).toBe("flex");
+    expect(slotRule.style.order).toBe("4");
+    // … and hidden at every other width by the base rule, so a desktop
+    // header can never show a stray pill row.
+    expect(baseRule(".kb-lane-pills").style.display).toBe("none");
+
+    // Kanban only: the view toggle (list/compact/board) is gone on phones.
+    expect(ruleIn(media, ".kb-view-toggle").style.display).toBe("none");
+
+    // The pills are primary controls, so they carry the block's audited
+    // 44px tap-target floor — not the prototype's 36px.
+    expect(ruleIn(media, ".kb-lane-pill").style.minHeight).toBe("44px");
   });
 });

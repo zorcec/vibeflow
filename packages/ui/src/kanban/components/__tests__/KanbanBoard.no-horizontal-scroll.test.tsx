@@ -181,6 +181,10 @@ describe("layout drift cannot slip back in by refactor", () => {
 describe("wide-lane strip overflows narrow viewports by design", () => {
   const COLS = 5;
 
+  // Since MOBILE-KANBAN M1 (ADR-0002 phone carve-out) a <=767px viewport
+  // mounts ONE lane, not this strip — the math below describes the desktop
+  // strip (>=768px), which is what still scrolls sideways.
+
   it("the 5-lane strip is wider than 1280 / 768 / 390 viewports", () => {
     // 5 * 320 + 4 * 16 + 2 * 20 = 1704: every viewport below needs the
     // board's horizontal scrollbar — lanes hold 320px instead of
@@ -193,5 +197,51 @@ describe("wide-lane strip overflows narrow viewports by design", () => {
 
   it("lanes hold the floor at every viewport (no squeeze, no stack)", () => {
     expect(BOARD_COLUMN_MIN_WIDTH_PX).toBe(320);
+  });
+});
+
+/**
+ * ADR-0002 phone carve-out (MOBILE-KANBAN M1, ticket k2x2agpos66jpsggi1owj1er):
+ * at <=767px the board mounts ONE lane, and that lane must not push a
+ * sub-360px viewport into the board's horizontal scrollbar — the spec forbids
+ * horizontal board scrolling on phones. The floor therefore yields ONLY
+ * inside the narrow block; the base `.board-column` rule above keeps 320px
+ * for every width >=768px.
+ */
+describe("phone carve-out: the lane floor yields at <=767px only", () => {
+  /** The `@media (max-width: 767px)` block, comments stripped, braces balanced. */
+  function narrowBlock(): string {
+    const bare = readFileSync(cssPath, "utf-8").replace(/\/\*[\s\S]*?\*\//g, "");
+    const start = bare.indexOf("@media (max-width: 767px)");
+    expect(start, "the narrow-viewport media block must exist").toBeGreaterThan(-1);
+    const open = bare.indexOf("{", start);
+    let depth = 0;
+    for (let i = open; i < bare.length; i++) {
+      if (bare[i] === "{") depth++;
+      else if (bare[i] === "}") {
+        depth--;
+        if (depth === 0) return bare.slice(start, i + 1);
+      }
+    }
+    throw new Error("unbalanced @media block in kanban.css");
+  }
+
+  it("declares min-width: 0 for the mounted phone lane inside the narrow block", () => {
+    const rule = narrowBlock().match(
+      /#kanban-board \.board-column\s*\{([^}]*)\}/,
+    );
+    expect(
+      rule,
+      "the carve-out rule `#kanban-board .board-column` must live in @media (max-width: 767px)",
+    ).toBeTruthy();
+    expect(rule![1]).toMatch(/min-width:\s*0/);
+  });
+
+  it("keeps the 320px base floor untouched for the desktop strip", () => {
+    // The carve-out must be additive: removing it from the narrow block
+    // fails above, changing the BASE floor fails the desktop pins above.
+    expect(narrowBlock()).not.toMatch(/\.board-column\s*\{[^}]*min-width:\s*320/);
+    const base = ruleBlock(".board-column");
+    expect(base).toMatch(/min-width:\s*320px/);
   });
 });

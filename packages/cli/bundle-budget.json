@@ -12,9 +12,9 @@
   "allowancePercent": 2,
   "artifacts": {
     "packages/cli/dist/client/kanban.css": {
-      "bytes": 77405,
-      "budget": 79360,
-      "why": "board CSS inlined into the served HTML (server/kanban-css.gen.ts); +93 B from replacing the last hardcoded colours with color-mix() over tokens (2026-11-14)"
+      "bytes": 80344,
+      "budget": 82432,
+      "why": "board CSS inlined into the served HTML (server/kanban-css.gen.ts); +93 B from replacing the last hardcoded colours with color-mix() over tokens (2026-11-14); +984 B from the M1 phone narrow block (lane pills row, min-width 0 lane floor, view-toggle hide) — re-measured 80,344 B on 2026-11-21, budget re-derived by the same rule (2% of measured, rounded up to 512 B): 79,360 → 82,432"
     },
     "packages/cli/dist/client/kanban-browser.js": {
       "bytes": 1132955,

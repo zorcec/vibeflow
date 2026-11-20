@@ -178,23 +178,29 @@ beforeAll(() => {
   document.head.appendChild(style);
 });
 
-/** Every parsed style rule, with whether it sits inside a hover-gated media block. */
-function styleRules(): Array<{ rule: CSSStyleRule; hoverGated: boolean }> {
-  const out: Array<{ rule: CSSStyleRule; hoverGated: boolean }> = [];
-  const walk = (rules: CSSRuleList, hoverGated: boolean) => {
+/** Every parsed style rule, with whether it sits inside a hover-gated media
+ * block and the media condition text of its enclosing block ("" at top level). */
+function styleRules(): Array<{
+  rule: CSSStyleRule;
+  hoverGated: boolean;
+  media: string;
+}> {
+  const out: Array<{ rule: CSSStyleRule; hoverGated: boolean; media: string }> = [];
+  const walk = (rules: CSSRuleList, hoverGated: boolean, media: string) => {
     for (const rule of Array.from(rules)) {
-      if (rule instanceof CSSStyleRule) out.push({ rule, hoverGated });
+      if (rule instanceof CSSStyleRule) out.push({ rule, hoverGated, media });
       else if (rule instanceof CSSMediaRule) {
         walk(
           rule.cssRules,
           hoverGated || /hover:\s*hover/.test(rule.conditionText),
+          rule.conditionText,
         );
       } else if (rule instanceof CSSSupportsRule) {
-        walk(rule.cssRules, hoverGated);
+        walk(rule.cssRules, hoverGated, media);
       }
     }
   };
-  for (const sheet of Array.from(document.styleSheets)) walk(sheet.cssRules, false);
+  for (const sheet of Array.from(document.styleSheets)) walk(sheet.cssRules, false, "");
   return out;
 }
 
@@ -241,5 +247,28 @@ describe("advance control box + reveal contract (302e9cab)", () => {
     );
     expect(focusRule, ".task-card-advance:focus-visible rule must exist").toBeTruthy();
     expect(focusRule!.rule.style.getPropertyValue("opacity")).toBe("1");
+  });
+
+  /**
+   * MOBILE-KANBAN M1 (ticket k2x2agpos66jpsggi1owj1er): phones now render
+   * the BOARD (list/compact are gone at <=767px), so the card hover reveal
+   * above — gated to `hover: hover` + fine pointers — never fires on a
+   * phone. This coarse-pointer branch is what keeps the spec's "existing
+   * move/status controls keep working" true on a phone: the advance chevron
+   * must be visible and tappable there, because it is the non-drag path to
+   * the next lane (the detail panel status control covers the rest).
+   */
+  it("stays visible and tappable on touch — the phone board's lane-move control", () => {
+    const touch = styleRules().find(
+      ({ rule, media }) =>
+        selectorList(rule).includes(".task-card-advance") &&
+        /hover:\s*none|pointer:\s*coarse/.test(media),
+    );
+    expect(
+      touch,
+      "the coarse-pointer reveal must exist for touch devices",
+    ).toBeTruthy();
+    expect(touch!.rule.style.getPropertyValue("opacity")).toBe("0.6");
+    expect(touch!.rule.style.getPropertyValue("pointer-events")).toBe("auto");
   });
 });
