@@ -37,11 +37,12 @@ async function openAddTask(page: Page, columnId: string) {
 
 async function openTaskByTitle(page: Page, title: string) {
   await page.evaluate((taskTitle) => {
+    const needle = taskTitle.toLowerCase();
     const card = [
       ...document.querySelectorAll("#kanban-board article.task-card"),
-    ].find((candidate) => candidate.textContent?.includes(taskTitle)) as
-      | HTMLElement
-      | undefined;
+    ].find((candidate) =>
+      (candidate.textContent ?? "").toLowerCase().includes(needle),
+    ) as HTMLElement | undefined;
     card?.click();
   }, title);
   await page.waitForSelector("#detail-panel.open");
@@ -283,10 +284,12 @@ describe("Kanban board", () => {
       );
       expect(await pills.count()).toBe(5);
       // Default mounted lane is the first visible one (Backlog); tapping a
-      // pill swaps which single lane is mounted — the task lives in Todo.
-      await pills.filter({ hasText: "Todo" }).click();
+      // pill swaps which single lane is mounted. The task starts in Todo
+      // and pass 1 moves it to Review, so pass 2 must mount Review.
+      const taskLane = width === 360 ? "Todo" : "Review";
+      await pills.filter({ hasText: taskLane }).click();
       await page.waitForSelector(
-        '#kanban-board .board-column[data-column-id="todo"]',
+        `#kanban-board .board-column[data-column-id="${taskLane.toLowerCase()}"]`,
       );
       const pageWidth = await page.evaluate(() => ({
         viewport: window.innerWidth,
@@ -300,7 +303,16 @@ describe("Kanban board", () => {
       await page.getByRole("button", { name: "Open board menu" }).click();
 
       // Non-drag status move on a phone: the detail panel's status buttons
-      // (the list row's `select` left with the list view at <=767px).
+      // (the list row's `select` left with the list view at <=767px). The
+      // old list-row wait also covered the task fetch — wait for the card
+      // itself before clicking it (case-insensitive: pass 2 retitles the
+      // task to "Edited mobile layout task").
+      await page.waitForFunction((t) => {
+        const needle = t.toLowerCase();
+        return [...document.querySelectorAll("#kanban-board article.task-card")].some(
+          (c) => (c.textContent ?? "").toLowerCase().includes(needle),
+        );
+      }, "Mobile layout task");
       await openTaskByTitle(page, "Mobile layout task");
       await page.click('#detail-panel .dp-status-btn[data-status="review"]');
       await page.waitForFunction(async (id) => {
@@ -2336,9 +2348,6 @@ describe("Kanban board", () => {
       task.id,
       { timeout: 5_000 },
     );
-
-    const sourceCard = page.locator(`[data-task-id="${task.id}"]`).first();
-    const doneColumn = page.locator('[data-column-id="done"] .column-scroll');
 
     // Drag with the real pointer, not `dragTo`. The board is a NOWRAP strip
     // (owner reversal of s5dfufqs) and five 320px lanes are 1704px wide, so
