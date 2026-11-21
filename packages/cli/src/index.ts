@@ -46,7 +46,11 @@ import {
   resolveReadPorts,
 } from "./core/operation-context.js";
 import * as operations from "./core/operations.js";
-import { resolveDemoRoot, seedDemoBoard } from "./core/demo-board.js";
+import {
+  maybeSeedEmptyProject,
+  resolveDemoRoot,
+  seedDemoBoard,
+} from "./core/demo-board.js";
 import type { OperationContext } from "./core/operations.js";
 import { emitAfterHook } from "./core/hooks/emit.js";
 import {
@@ -108,7 +112,7 @@ import { saasFailure, saasReadErrorMessage } from "./saas/failure.js";
 // onto the local Task shape for after-hook `task` snapshots.
 import { toLocalTask } from "./core/remote-task-store.js";
 import { readProjectPointer } from "./auth/project-pointer.js";
-import { readFileSync, existsSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
 import chalk from "chalk";
 import { capture, flushTelemetry } from "./telemetry.js";
@@ -1114,12 +1118,39 @@ program
       await flushTelemetry();
       // Explicit --project / positional wins; $VIBEFLOW_PROJECT_DIR fills
       // the default inside resolveProjectRoot (b5f90a1e scratch-store boot).
-      const root = resolveProjectRoot(opts.project ?? dir, { mode: "http" });
+      let root = resolveProjectRoot(opts.project ?? dir, { mode: "http" });
       if (!root.ok) {
-        reportProjectRootFailure(root);
-        return;
+        // Owner order 2026-11-21 (ticket e5176b6c): a human who runs `kanban`
+        // in a folder that is not a project yet gets a project — not a refusal.
+        // The guard stays for programmatic/hidden callers; here the human asked
+        // for the board explicitly, so we create the store and say so loudly
+        // rather than dropping one silently.
+        if (root.code === "PROJECT_ROOT_NOT_A_PROJECT") {
+          const target = resolve(opts.project ?? dir ?? process.cwd());
+          mkdirSync(join(target, ".vibeflow"), { recursive: true });
+          root = { ok: true, projectDir: target, name: basename(target), branch: null };
+          console.log(
+            chalk.yellow(`• ${target} was not a Vibeflow project yet — created .vibeflow/ here.`),
+          );
+        } else {
+          reportProjectRootFailure(root);
+          return;
+        }
       }
       announceProjectRoot(root);
+      // First-run sample data (ticket e5176b6c): only a store that is EMPTY and
+      // has never been seeded gets the demo cards; the marker decides, so
+      // deleting them does not resurrect them. One line, no prompt.
+      {
+        const seeded = maybeSeedEmptyProject(root.projectDir);
+        if (seeded.seeded) {
+          console.log(
+            chalk.dim(
+              `  Seeded ${seeded.count} example tasks — delete them as you go; this happens once per project.`,
+            ),
+          );
+        }
+      }
       // Startup decisions run in the shared `startKanban` operation
       // (core/operations/kanban.ts); this renderer keeps flag parsing, root
       // resolution/announcement, browser opening (`--no-open`), the

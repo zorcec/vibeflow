@@ -207,6 +207,112 @@ function commentFor(taskId: string, c: { author: "user" | "agent"; text: string 
   };
 }
 
+/**
+ * Writes the demo cards into `root` WITHOUT wiping anything. Shared by the
+ * `vibeflow demo` refresh path and the first-run auto-seed (ticket e5176b6c) —
+ * one copy of the sample content, one writer.
+ */
+function writeSeedCards(root: string): void {
+  ensureTaskDirs(root);
+  for (const card of SEED_CARDS) {
+    const created = createTask(root, {
+      title: card.title,
+      description: card.description,
+      status: card.status,
+      selector: card.selector ?? "/",
+      ...(card.type === undefined ? {} : { type: card.type }),
+      ...(card.priority === undefined ? {} : { priority: card.priority }),
+      ...(card.tags === undefined ? {} : { tags: card.tags }),
+      ...(card.url === undefined ? {} : { url: card.url }),
+    } as Parameters<typeof createTask>[1]);
+
+    const updates: Partial<Omit<Task, "id" | "created">> = {};
+    if (card.verified === true) updates.verified = true;
+    if (card.comments && card.comments.length > 0) {
+      updates.comments = card.comments.map((c, i) => commentFor(created.id, c, i));
+    }
+    if (card.children && card.children.length > 0) {
+      const childLinks: TaskLink[] = [];
+      for (const child of card.children) {
+        const childTask = createTask(root, {
+          title: child.title,
+          description: "Sub-task of: " + card.title,
+          status: child.status,
+          selector: "/",
+          type: "Task",
+        } as Parameters<typeof createTask>[1]);
+        updateTask(root, childTask.id, {
+          links: [{ taskId: created.id, type: "parent" }],
+        });
+        childLinks.push({ taskId: childTask.id, type: "parent" });
+      }
+      updates.links = [...(updates.links ?? []), ...childLinks];
+    }
+    if (Object.keys(updates).length > 0) updateTask(root, created.id, updates);
+    for (const [name, body] of Object.entries(card.files ?? {})) {
+      saveFile(root, created.id, name, Buffer.from(body, "utf8"));
+    }
+  }
+}
+
+/** Counts task JSON files in a project store (0 when the store is absent). */
+export function countStoredTasks(root: string): number {
+  const tasksDir = join(root, ".vibeflow", "tasks");
+  if (!existsSync(tasksDir)) return 0;
+  let n = 0;
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) walk(join(dir, entry.name));
+      else if (entry.name.endsWith(".json")) n += 1;
+    }
+  };
+  walk(tasksDir);
+  return n;
+}
+
+export interface AutoSeedResult {
+  seeded: boolean;
+  count: number;
+  /** Why nothing was seeded — only set when `seeded` is false. */
+  reason?: "marker" | "not-empty";
+}
+
+/**
+ * First-run auto-seed for a LOCAL project (owner order 2026-11-21, ticket
+ * e5176b6c: "every new empty project has demo data by default").
+ *
+ * Three rules, each load-bearing:
+ *  1. A project that already has ANY task is never seeded — never merge sample
+ *     data into real work, never inflate counts.
+ *  2. A project that was seeded once is never seeded again, even if the user
+ *     deleted every sample: the MARKER decides, not emptiness, or deleted cards
+ *     would resurrect on the next boot.
+ *  3. Seeds go through the same `writeSeedCards` path as `vibeflow demo`, so
+ *     there is exactly one copy of the sample content.
+ */
+export function maybeSeedEmptyProject(root: string): AutoSeedResult {
+  const markerPath = join(root, MARKER_REL);
+  if (existsSync(markerPath)) {
+    return { seeded: false, count: countStoredTasks(root), reason: "marker" };
+  }
+  const existing = countStoredTasks(root);
+  if (existing > 0) {
+    return { seeded: false, count: existing, reason: "not-empty" };
+  }
+
+  mkdirSync(join(root, ".vibeflow"), { recursive: true });
+  writeSeedCards(root);
+  writeFileSync(
+    markerPath,
+    JSON.stringify(
+      { version: DEMO_SEED_VERSION, seededAt: new Date().toISOString(), source: "first-run" },
+      null,
+      2,
+    ) + "\n",
+  );
+  return { seeded: true, count: countStoredTasks(root) };
+}
+
 function wipeDemoStore(root: string): void {
   const proto = join(root, ".vibeflow");
   for (const sub of ["tasks", "files"]) {
@@ -248,51 +354,7 @@ export function seedDemoBoard(root: string, opts: { reset?: boolean } = {}): See
 
   wipeDemoStore(root);
   mkdirSync(join(root, ".vibeflow"), { recursive: true });
-  ensureTaskDirs(root);
-
-  for (const card of SEED_CARDS) {
-    const created = createTask(root, {
-      title: card.title,
-      description: card.description,
-      status: card.status,
-      selector: card.selector ?? "/",
-      ...(card.type === undefined ? {} : { type: card.type }),
-      ...(card.priority === undefined ? {} : { priority: card.priority }),
-      ...(card.tags === undefined ? {} : { tags: card.tags }),
-      ...(card.url === undefined ? {} : { url: card.url }),
-    } as Parameters<typeof createTask>[1]);
-
-    const updates: Partial<Omit<Task, "id" | "created">> = {};
-    if (card.verified === true) updates.verified = true;
-
-    if (card.comments && card.comments.length > 0) {
-      updates.comments = card.comments.map((c, i) => commentFor(created.id, c, i));
-    }
-
-    if (card.children && card.children.length > 0) {
-      const childLinks: TaskLink[] = [];
-      for (const child of card.children) {
-        const childTask = createTask(root, {
-          title: child.title,
-          description: "Sub-task of: " + card.title,
-          status: child.status,
-          selector: "/",
-          type: "Task",
-        } as Parameters<typeof createTask>[1]);
-        updateTask(root, childTask.id, {
-          links: [{ taskId: created.id, type: "parent" }],
-        });
-        childLinks.push({ taskId: childTask.id, type: "parent" });
-      }
-      updates.links = [...(updates.links ?? []), ...childLinks];
-    }
-
-    if (Object.keys(updates).length > 0) updateTask(root, created.id, updates);
-
-    for (const [name, body] of Object.entries(card.files ?? {})) {
-      saveFile(root, created.id, name, Buffer.from(body, "utf8"));
-    }
-  }
+  writeSeedCards(root);
 
   writeFileSync(
     markerPath,

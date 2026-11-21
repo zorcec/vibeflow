@@ -4,6 +4,8 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   DEMO_SEED_VERSION,
+  countStoredTasks,
+  maybeSeedEmptyProject,
   resolveDemoRoot,
   seedDemoBoard,
 } from "../../src/core/demo-board.js";
@@ -104,5 +106,54 @@ describe("vibeflow demo — local seeded demo board (ticket ec65a901)", () => {
     expect(readdirSync(outside)).toEqual(before);
     expect(existsSync(join(outside, ".vibeflow", "demo-seed.json"))).toBe(false);
     expect(existsSync(join(root, ".vibeflow", "demo-seed.json"))).toBe(true);
+  });
+});
+
+describe("first-run auto-seed for a local project (ticket e5176b6c)", () => {
+  it("seeds an empty project once and reports the card count", () => {
+    const root = freshRoot();
+    const result = maybeSeedEmptyProject(root);
+
+    expect(result.seeded).toBe(true);
+    expect(result.count).toBeGreaterThanOrEqual(10);
+    expect(countStoredTasks(root)).toBe(result.count);
+    expect(existsSync(join(root, ".vibeflow", "demo-seed.json"))).toBe(true);
+  });
+
+  it("never reseeds — the marker decides, not emptiness", () => {
+    const root = freshRoot();
+    const first = maybeSeedEmptyProject(root);
+    const second = maybeSeedEmptyProject(root);
+
+    expect(first.seeded).toBe(true);
+    expect(second.seeded).toBe(false);
+    expect(second.reason).toBe("marker");
+    expect(countStoredTasks(root)).toBe(first.count);
+  });
+
+  it("stays empty after the user deletes every sample (no resurrection)", () => {
+    const root = freshRoot();
+    maybeSeedEmptyProject(root);
+
+    // Simulate the user deleting every task, marker left behind.
+    rmSync(join(root, ".vibeflow", "tasks"), { recursive: true, force: true });
+
+    const again = maybeSeedEmptyProject(root);
+    expect(again.seeded).toBe(false);
+    expect(again.reason).toBe("marker");
+    expect(countStoredTasks(root)).toBe(0);
+  });
+
+  it("never touches a project that already has tasks", async () => {
+    const root = freshRoot();
+    const { createTask } = await import("../../src/core/tasks.js");
+    createTask(root, { title: "real work", description: "", status: "todo", selector: "/" } as never);
+
+    const result = maybeSeedEmptyProject(root);
+    expect(result.seeded).toBe(false);
+    expect(result.reason).toBe("not-empty");
+    expect(countStoredTasks(root)).toBe(1);
+    const titles = readTasks(root).map((t) => t.title);
+    expect(titles).toEqual(["real work"]);
   });
 });
