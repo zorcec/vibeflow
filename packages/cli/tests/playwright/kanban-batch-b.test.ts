@@ -70,69 +70,24 @@ describe("Batch B — view modes + fit-screen (compact view)", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("compact view: three switches, one-line done-style rows, no strikethrough on open lanes", async () => {
-    const taggedId = await seedTask(
-      "COMPACT-desc-task",
-      "todo",
-      "COMPACT-MARKER-DESCRIPTION-XYZ",
-      ["COMPACT-TAG-XYZ"],
-    );
-    // One comment → comment count badge in board view.
-    await fetch(`${API}/${encodeURIComponent(taggedId)}/comments`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ author: "pw", text: "compact count probe" }),
-    });
+  // Owner order 2026-11-21 (ticket 6e927e14): kanban is the ONLY view.
+  // This replaces the old "three switches / compact rows" test — that
+  // behaviour was removed, so the guard now pins its absence rather than a
+  // rewritten version of the old assertions.
+  it("kanban is the only view — no Board/Compact/List toggle", async () => {
+    await seedTask("ONLY-VIEW-task", "todo", "ONLY-VIEW-DESCRIPTION");
     await page.goto(`${BASE}/kanban`);
     await page.waitForSelector("#kanban-board");
-    // Three view switches: board | compact | list
-    expect(await page.locator('[title="Board view"]').count()).toBe(1);
-    expect(await page.locator('[title="Compact view"]').count()).toBe(1);
-    expect(await page.locator('[title="List view"]').count()).toBe(1);
-    // Board view renders full cards with descriptions
-    await page.click('[title="Board view"]');
+    expect(await page.locator('[title="Board view"]').count()).toBe(0);
+    expect(await page.locator('[title="Compact view"]').count()).toBe(0);
+    expect(await page.locator('[title="List view"]').count()).toBe(0);
+    expect(await page.locator(".kb-view-toggle").count()).toBe(0);
+    expect(await page.locator("#kanban-list-view").count()).toBe(0);
+    // The board renders full cards, including their descriptions.
     await page.waitForFunction(
-      () =>
-        (document.body.textContent ?? "").includes(
-          "COMPACT-MARKER-DESCRIPTION-XYZ",
-        ),
+      () => (document.body.textContent ?? "").includes("ONLY-VIEW-DESCRIPTION"),
       { timeout: 5_000 },
     );
-    // Compact view: one-line rows, description hidden
-    await page.click('[title="Compact view"]');
-    await page.waitForSelector("article.task-card[data-compact]");
-    await page.waitForFunction(
-      () =>
-        !(document.body.textContent ?? "").includes(
-          "COMPACT-MARKER-DESCRIPTION-XYZ",
-        ),
-      { timeout: 5_000 },
-    );
-    // Compact rows: title only — no tags, no comment/file counts.
-    const compactMeta = await page.evaluate(() =>
-      Array.from(
-        document.querySelectorAll("article.task-card[data-compact]"),
-      ).some((card) => {
-        const text = card.textContent ?? "";
-        return (
-          text.includes("COMPACT-TAG-XYZ") ||
-          text.includes("\uD83D\uDCAC") ||
-          text.includes("\uD83D\uDCCE")
-        );
-      }),
-    );
-    expect(compactMeta).toBe(false);
-    // Open-lane compact rows must not be struck through
-    const struck = await page.evaluate(() =>
-      Array.from(
-        document.querySelectorAll(
-          "article.task-card[data-compact] span",
-        ),
-      ).filter((el) =>
-        getComputedStyle(el).textDecorationLine.includes("line-through"),
-      ).length,
-    );
-    expect(struck).toBe(0);
   });
 
   // Owner rule: fit-to-screen applies to the DONE lane only. Other lanes
