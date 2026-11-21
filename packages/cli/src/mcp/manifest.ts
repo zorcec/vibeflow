@@ -93,6 +93,8 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
     authors: "local-only git author enrichment: its `link` leg writes git authorEmails into the git-tracked task store, which must stay a deliberate human action, never something an MCP client triggers remotely",
     "authors link": "binds git authorEmails to task IDs in the local, git-tracked store — a local git write for repo maintenance, not a task operation",
     changelog: "prints the packed changelog; no task state",
+    demo:
+      "boots a disposable demo board at ~/.vibeflow-demo for a human first run — it seeds a fixed example store and opens a browser; there is no task operation for an MCP client to perform, and start_kanban already covers serving a real project",
     kanban: "only the board SERVER is exposed, as start_kanban/get_integration_guide; the browser-opening and changelog side of the command are not reachable over MCP",
     login: "interactive device-flow authentication; hidden; cannot be driven non-interactively over MCP",
     logout: "clears the local auth token; hidden; local credential mutation",
@@ -105,6 +107,14 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
       "prints login state, connection info and task counts for a human; its --json form is for shell scripting, and no MCP tool needs a synchronous health probe — every tool reports its own errors",
   },
   flags: {
+    // `demo` is a human first-run affordance: it seeds a disposable example
+    // store and opens a browser (see the `demo` command entry above). Its
+    // flags tune that one boot — port/host/browser opening and a reseed — and
+    // none of them is a task operation an MCP client would spell.
+    "demo --port": "ports the demo board server; start_kanban owns port selection over MCP",
+    "demo --host": "binds the demo board server; start_kanban owns binding over MCP",
+    "demo --no-open": "suppresses the browser launch of a human-facing demo boot; MCP clients never open browsers",
+    "demo --reset": "reseeds the disposable demo store; there is no MCP equivalent because no tool seeds example data",
     // Machine-output formatting for human CLI rendering. The MCP wire payload
     // is already JSON on every tool, so there is no operation to map it to.
     // Previously owned by export_prompt's cliRef (ticket 53b622fc removed it).

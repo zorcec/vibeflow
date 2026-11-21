@@ -46,6 +46,7 @@ import {
   resolveReadPorts,
 } from "./core/operation-context.js";
 import * as operations from "./core/operations.js";
+import { resolveDemoRoot, seedDemoBoard } from "./core/demo-board.js";
 import type { OperationContext } from "./core/operations.js";
 import { emitAfterHook } from "./core/hooks/emit.js";
 import {
@@ -940,6 +941,7 @@ For coding agents — quick reference:
   vibeflow tasks --edit <id> --set-status in-progress
   vibeflow serve [target]              Start local server / prototype viewer
   vibeflow kanban                      Open the Kanban board in browser
+  vibeflow demo                        Populated demo board — no project, no account
   vibeflow changelog [--all]           Show the changelog (latest version / all versions)
   vibeflow openapi [--yaml]            Print the bundled OpenAPI spec (no server needed)
 
@@ -1169,6 +1171,94 @@ program
       }
       // Non-blocking update check — runs after all startup output is shown.
       void checkForUpdates(opts.changelog !== false);
+      },
+    ),
+  );
+
+// ── demo ────────────────────────────────────────────────────────────────
+// Ticket ec65a901 (owner order 2026-11-21): the demo board must exist
+// LOCALLY, not only for a fresh hosted account. Deliberately does NOT resolve
+// a project root — the whole point is that it runs anywhere (a bare
+// /home/zorcec/workspace with no .git and no .vibeflow) and seeds a store at
+// ~/.vibeflow-demo instead. See core/demo-board.ts for the safety decisions.
+program
+  .command("demo")
+  .description(
+    "Boot a populated demo board — no project, no account, no .git needed",
+  )
+  .option("-p, --port <port>", "Port number", "3701")
+  .option(
+    "--host <host>",
+    "Bind hostname (default: localhost; use 0.0.0.0 for LAN sharing)",
+  )
+  .option("--no-open", "Do not open browser automatically")
+  .option("--reset", "Wipe the demo store and reseed it", false)
+  .action(
+    toolAction(
+      "demo",
+      async (
+        handle,
+        opts: { port: string; host?: string; open: boolean; reset: boolean },
+      ) => {
+        capture("command_run", { surface: "cli", command: "demo" });
+        await flushTelemetry();
+
+        const demoRoot = resolveDemoRoot();
+        const seed = seedDemoBoard(demoRoot, { reset: opts.reset === true });
+        process.stdout.write(
+          (seed.seeded
+            ? chalk.green(`✓ Demo board seeded (${seed.count} tasks) at ${seed.root}\n`)
+            : chalk.dim(`• Demo board ready (${seed.count} tasks) at ${seed.root}\n`)) as string,
+        );
+
+        const kanbanOpCtx: OperationContext = {
+          projectDir: seed.root,
+          mode: "local",
+          hookScope: handle.scope,
+        };
+        handle.target = { projectDir: seed.root, mode: "local" };
+        const kanbanResult = await operations.startKanban(kanbanOpCtx, {
+          port: parseInt(opts.port, 10),
+          ...(opts.host === undefined ? {} : { host: opts.host }),
+          quiet: false,
+          noCtrlCHint: true,
+          dryRun: false as const,
+        });
+        if (!kanbanResult.ok) {
+          process.stderr.write(chalk.red(`✗ ${kanbanResult.error.message}\n`));
+          if (kanbanResult.error.suggestion) {
+            process.stderr.write(chalk.dim(`  ${kanbanResult.error.suggestion}\n`));
+          }
+          process.exitCode = ExitCode.GENERAL;
+          return;
+        }
+        const { url, localUrl } = kanbanResult.data as {
+          url: string;
+          localUrl: string | null;
+        };
+        const kanbanUrl = url + "/kanban";
+        printGuideLines(
+          buildKanbanReadyLines(buildIntegrationGuide({ url, localUrl })),
+        );
+        // Exactly ONE "what to try next" line — the research asked for a
+        // single hint, not a tour. Printed after the ready block so it is the
+        // last thing a first-time user reads.
+        process.stdout.write(
+          chalk.cyan("\nTry next: ") +
+            chalk.dim("open a card, drag it between lanes, then run ") +
+            chalk.bold("vibeflow tasks --next") +
+            chalk.dim(" in this demo store.\n\n") +
+            chalk.dim("  (demo store: ") +
+            seed.root +
+            chalk.dim(" — safe to edit or delete; re-run with --reset to restore)\n"),
+        );
+        if (opts.open) {
+          import("open")
+            .then((mod) => mod.default(kanbanUrl))
+            .catch(() => {
+              console.log(chalk.dim("  Visit: ") + chalk.cyan(kanbanUrl));
+            });
+        }
       },
     ),
   );

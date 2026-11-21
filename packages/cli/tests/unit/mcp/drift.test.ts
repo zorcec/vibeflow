@@ -261,6 +261,10 @@ describe("MCP drift test", () => {
       // deliberate human action, never something an agent triggers remotely.
       "authors",
       "changelog",
+      // Human first-run demo: seeds a disposable example store at
+      // ~/.vibeflow-demo and opens a browser. Never an MCP operation — no
+      // tool seeds example data, and start_kanban already serves a project.
+      "demo",
       "kanban",
       "login",
       "logout",

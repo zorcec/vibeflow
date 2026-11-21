@@ -74,6 +74,10 @@ export const HOOK_TOOLS: readonly HookToolSpec[] = [
   { tool: "verify", surface: "cli", before: gateable("verify"), after: gateable("verify") },
   { tool: "serve", surface: "cli", before: notGateable, after: readAfter() },
   { tool: "kanban", surface: "cli", before: notGateable, after: readAfter() },
+  // Human first-run demo (ec65a901): seeds a disposable store at
+  // ~/.vibeflow-demo and boots the board there. Not gateable — it writes only
+  // its own throwaway root, never the caller's project store.
+  { tool: "demo", surface: "cli", before: notGateable, after: readAfter() },
   { tool: "mcp", surface: "cli", before: notGateable, after: noAfter },
   { tool: "changelog", surface: "cli", before: notGateable, after: readAfter() },
   { tool: "openapi", surface: "cli", before: notGateable, after: readAfter() },
