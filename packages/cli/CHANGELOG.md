@@ -1,11 +1,67 @@
 # Changelog
 
+## 0.28.2
+
+### Patch Changes
+
+- ccd3ef3: Answer oversized MCP stdio frames instead of dying silently.
+
+  `vibeflow mcp` used to hand stdin straight to the MCP SDK. A single inbound
+  JSON-RPC frame over the SDK's 10 MB read-buffer limit made its `ReadBuffer`
+  throw, the transport close, and the server exit with code 0 — no response
+  frame, nothing on stderr, and an MCP client left waiting forever.
+
+  The stdio transport now frames stdin itself: frames up to 16 MiB are served
+  (the old ceiling was 10 MB, so a large `attach_file` payload was fatal), and
+  anything larger is dropped and answered with a JSON-RPC error naming the cap
+  while the session keeps serving. Covered by
+  `tests/e2e/mcp-stdio-oversize.test.ts`, which fails on the pre-fix build with
+  `server exited (code=0) before responding`.
+
+- f05686f: Make the board usable on a phone: one lane at a time (MOBILE-KANBAN M1).
+
+  At <=767px the board now mounts only the active lane and the lane pills live
+  in the sticky header as the primary toggle — tap a pill to swap which single
+  lane renders (all of its cards render up front, no virtualization). The board
+  no longer scrolls sideways on a phone: the lane floor yields to the viewport
+  inside the shared narrow block (the ADR-0002 phone carve-out), and the custom
+  strip scrollbar hides because there is nothing to scroll. The view toggle is
+  gone at <=767px — kanban is the only phone view, list and compact are
+  removed, and a stale session override can no longer select them. Card
+  design, the full-screen task detail, and the existing move/status controls
+  are untouched; >=768px renders exactly as before.
+
+  The hosted app picks the same behaviour up through `@vibeflow-tools/ui`.
+
+- 23f002c: Make the board usable on a phone.
+
+  Measured with Playwright at 390x844 and 360x640, then fixed:
+
+  - Fields are 16px on phones. iOS Safari zooms the page in when a focused field's
+    font-size is under 16px and never zooms back out, so tapping the search box left
+    the board zoomed into a clipped layout.
+  - Long task titles clamp to two lines instead of being cut mid-word at ~184px while
+    the row left a wide empty gutter.
+  - The board name and the "N open · N in progress · N in review" line truncate to one
+    line each, so the header no longer pushes the first task halfway down a 360x640
+    screen.
+  - Filter chips, the activity counter, the Tags/User/Type triggers, the view toggles
+    and the "Boards" breadcrumb are thumb-sized (44px) instead of 16-26px.
+  - The invisible lane-advance button on a card no longer accepts taps on touch
+    devices: it was `opacity: 0` with no `pointer-events: none`, so a tap on an
+    invisible control silently moved a task to the next status.
+  - The phone board menu closes when you pick an item, instead of leaving Settings
+    layered on top of a still-open menu.
+  - The "Send comment?" prompt wraps its three buttons, which used to overflow a
+    360px screen with no way to scroll.
+  - The activity feed has its own element ids; it shared `#detail-panel-container`
+    with the task panel, so lookups were ambiguous and the feed could cover the task.
+
 ## 0.28.1
 
 > Same content as 0.28.0. 0.28.0 was published first and 0.28.1 re-numbers the
 > identical build so `latest` points at a version the repo also reflects; 0.28.0
 > is deprecated, not withdrawn.
-
 
 ### Minor Changes
 
