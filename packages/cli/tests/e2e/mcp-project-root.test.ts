@@ -103,21 +103,52 @@ afterEach(async () => {
 });
 
 describe("W1 — project root at the CLI boundary", () => {
-  it("kanban from a non-project cwd exits non-zero, names --project, creates nothing", async () => {
+  // Owner order 2026-11-21 (ticket e5176b6c) supersedes the old refusal:
+  // `kanban` in a folder that is not a project yet now STARTS one and seeds the
+  // example cards, because a first run that refuses or shows a blank board is
+  // the activation killer the redesign research named. The guard still holds
+  // for every other command and for the stdio/MCP surface — that half is pinned
+  // by the sibling tests in this file and must never be relaxed with this one.
+  it("kanban from a non-project cwd starts a project and seeds the demo board", async () => {
     const home = tempDir("vf-w1-home-");
     const bare = tempDir("vf-w1-bare-");
+    const port = await getFreePort();
 
-    const res = await runCli(["kanban", "--no-open", "--no-changelog"], {
+    // Long-lived server: spawn, wait for "ready", then kill (afterEach reaps).
+    const child = spawnCli(
+      ["kanban", "--no-open", "--no-changelog", "-p", String(port)],
+      { cwd: bare, home },
+    );
+    const out = await waitForOutput(
+      child,
+      (o) => o.includes("Kanban board ready"),
+      "kanban ready in a bare cwd",
+    );
+
+    expect(out).toContain("was not a Vibeflow project yet");
+    expect(out).toContain("Seeded 13 example tasks");
+    expect(existsSync(join(bare, ".vibeflow"))).toBe(true);
+    expect(existsSync(join(bare, ".vibeflow", "demo-seed.json"))).toBe(true);
+    expect(existsSync(join(bare, ".proto"))).toBe(false);
+  });
+
+  // The guard has NOT been removed — only `kanban` is allowed to start a
+  // project (see the test above). `serve` is the sibling server command and
+  // must still refuse a bare cwd and create nothing: that is what keeps the
+  // owner order from turning into "any server command drops a store anywhere".
+  it("serve in a non-project cwd still refuses and creates nothing", async () => {
+    const home = tempDir("vf-w1-home3-");
+    const bare = tempDir("vf-w1-bare3-");
+
+    const res = await runCli(["serve", "--no-open", "-p", String(await getFreePort())], {
       cwd: bare,
       home,
     });
 
     expect(res.code).toBe(2); // ExitCode.USAGE
     expect(res.stderr).toContain("--project");
-    // ensureTaskDirs would have created both — neither may appear.
     expect(existsSync(join(bare, ".vibeflow"))).toBe(false);
     expect(existsSync(join(bare, ".proto"))).toBe(false);
-    expect(existsSync(join(home, ".vibeflow", "tasks"))).toBe(false);
   });
 
   it("kanban --project <valid> targets <valid> regardless of cwd and announces the absolute root", async () => {
