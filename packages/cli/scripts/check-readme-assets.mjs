@@ -93,7 +93,7 @@ export function classifyUrl(url, opts = {}) {
  * @param {string} url
  * @param {{ status: number, contentType?: string | null, contentLength?: number | null, error?: string | null }} probe
  */
-export function evaluateAsset(url, probe) {
+export function evaluateAsset(_url, probe) {
   if (probe.error) return { level: "error", reason: `unreachable: ${probe.error}` };
   if (probe.status !== 200) return { level: "error", reason: `HTTP ${probe.status}` };
   const type = (probe.contentType || "").toLowerCase();
@@ -233,7 +233,15 @@ export function checkPackSize(packageDir, opts = {}) {
     return { errors: [], warnings: ["dist/ is missing — pack size not checked (run the build first)"], skipped: true };
   }
   const raw = opts.packJson ? readFileSync(opts.packJson, "utf8") : execFileSync("npm", ["pack", "--dry-run", "--json"], { cwd: packageDir, encoding: "utf8" });
-  const [info] = JSON.parse(raw);
+  let info;
+  try {
+    [info] = JSON.parse(raw);
+  } catch (err) {
+    // Fail loudly with a structured verdict instead of an unhandled throw from JSON.parse.
+    const msg = err instanceof Error ? err.message : String(err);
+    return { errors: [`pack: cannot parse npm pack output — ${msg}`], warnings: [], skipped: false };
+  }
+  if (!info) return { errors: ["pack: npm pack --json produced no package entry"], warnings: [], skipped: false };
   const verdict = evaluatePack(info);
   return {
     ...verdict,
