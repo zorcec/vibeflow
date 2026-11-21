@@ -32,6 +32,9 @@ const COMMANDS = [
   // not an MCP tool, so it appears here but never in the tool surface.
   "authors",
   "changelog",
+  // Human first-run demo (ec65a901): seeds a disposable store and opens a
+  // browser. Not an MCP tool — no tool seeds example data.
+  "demo",
   "kanban",
   "login",
   "logout",

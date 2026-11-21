@@ -4,7 +4,7 @@
 - Date: 2026-11-06
 - Supersedes: ADR-0006
 - Governed: `packages/cli/src/core/hooks/`
-- Reviewed: 2026-11-07
+- Reviewed: 2026-11-21
 - Decided by: owner (ticket d552207737ba3ee1a22ad6476789fc, Hooks v2)
 
 ## Background
@@ -13,7 +13,7 @@ ADR-0006 keyed hooks by internal event (`after-task.update.mjs`) and materialise
 
 ## Decision
 
-1. **Key = tool.** One hook file per `<tool>.<phase>`; the tool set is the canonical commander command paths (15) plus the 13 MCP tool names, with hidden aliases (`login`→`auth.login`) resolving to their canonical key and containers (`authors`) explicitly unrunnable. Adding a command/tool without adding a registry row fails the guard test.
+1. **Key = tool.** One hook file per `<tool>.<phase>`; the tool set is the canonical commander command paths (16 — `demo` added 2026-11-21 for the local demo board, an ordinary registry row like `kanban`) plus the 13 MCP tool names, with hidden aliases (`login`→`auth.login`) resolving to their canonical key and containers (`authors`) explicitly unrunnable. Adding a command/tool without adding a registry row fails the guard test.
 2. **Two granules, one execution rule.** The file granule is the tool; the payload granule is the 8 activities; one execution per (tool, activity) unit of work and exactly one null-activity execution for a successful invocation that emitted nothing.
 3. **The envelope is v2**: `tool`, `surface`, `phase: before|after`, `activity: …|null`, `payload: …|null`, and the owner generic contract `task`/`activity`/`activityObject`/`instructions`. The `event` field is removed (it always equalled `activity`); `schemaVersion` is 2.
 4. **The after-envelope carries the confirmed record.** `task.create/update/claim/comment` carry the post-write snapshot (`task.delete` carries the pre-delete row), `activityObject` carries the secondary record (changed keys, written comment, claim filters), and run intents (`push`/`pull`/`verify`) carry `task: null` by design. The same snapshot rule governs `before` envelopes (best-known intent, never a generated id).
