@@ -2282,12 +2282,20 @@ body.proto-resizing-panel {
     padding: 6px 8px !important;
     gap: 6px !important;
     min-width: 0;
+    /* Owner annotation 2026-11-21 (ticket bzn2w18w): with the status chips
+       gone, the Tags/User/Type trigger row is the only control left in the
+       bar and a left-flushed row read as clipped at 360px — centre it. */
+    justify-content: center;
   }
+  /* Owner annotation 2026-11-21 (ticket bx90tjzo): the All/Todo/In progress
+     chips row is REMOVED on phones. It cost a full row above the cards while
+     the single-lane board already states the active lane in its header.
+     Desktop keeps the chips unchanged (this block is <=767px only). */
   .kb-status-filters {
-    flex: 1 0 100%;
-    min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: thin;
+    /* `!important` is required, not laziness: the element carries an inline
+       `style={{display:'flex'}}` (FilterBar.tsx), and an inline declaration
+       outranks this block. Same reason the bar's padding/gap above use it. */
+    display: none !important;
   }
   .kb-status-filters > button {
     white-space: nowrap;

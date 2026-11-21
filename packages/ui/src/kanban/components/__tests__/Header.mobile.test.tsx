@@ -165,9 +165,19 @@ describe("shared mobile header and filter reflow", () => {
       ruleIn(media, ".kb-header-desktop-actions").style.getPropertyValue("display"),
       "desktop header actions hide behind the menu on narrow viewports",
     ).toBe("none");
-    expect(flexTriple(ruleIn(media, ".kb-status-filters").style)).toMatch(
-      /1\s+0\s+100%/,
-    );
+    // Owner annotation 2026-11-21 (ticket bx90tjzo): the status chips row is
+    // removed on phones — the single-lane board already states the active
+    // lane, and the row cost a full band above the cards at 360px.
+    expect(
+      ruleIn(media, ".kb-status-filters").style.getPropertyValue("display"),
+      "status filter chips are removed on phones",
+    ).toBe("none");
+    // Owner annotation 2026-11-21 (ticket bzn2w18w): the remaining
+    // Tags/User/Type trigger row is centred rather than left-flushed.
+    expect(
+      ruleIn(media, ".kb-filter-bar").style.getPropertyValue("justify-content"),
+      "the remaining trigger row is centred on phones",
+    ).toBe("center");
   });
 
   /** The base (any-width) rule for one selector, outside every media block. */
