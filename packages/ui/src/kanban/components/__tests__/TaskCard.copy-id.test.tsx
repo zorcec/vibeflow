@@ -117,19 +117,14 @@ describe("TaskCard copy-id button", () => {
     expect(appendSpy).toHaveBeenCalled();
   });
 
-  it("renders in the done single-row variant but NOT in compact view", () => {
-    // Owner call 0a2fa3d6: the copy-ID button is removed from the compact
-    // card (its 22px box was reserved even while invisible). Done-lane
-    // cards in board view keep theirs.
-    const { container } = renderCard(makeTask(), { compact: true });
+  it("renders in the done single-row variant (the compact branch is gone)", () => {
+    // Owner order 2026-11-21 (ticket 6e927e14908f0cc28c89106657b0bd): the
+    // compact card that used to hide this pill (owner call 0a2fa3d6) is
+    // removed, so the done lane's single-row card is the only row layout —
+    // and it keeps its copy-ID pill.
+    const { container } = renderCard(makeTask({ status: "done" }));
     expect(
       container.querySelector('[data-role="copy-id"]'),
-    ).not.toBeInTheDocument();
-    const { container: doneContainer } = renderCard(
-      makeTask({ status: "done" }),
-    );
-    expect(
-      doneContainer.querySelector('[data-role="copy-id"]'),
     ).toBeInTheDocument();
   });
 });

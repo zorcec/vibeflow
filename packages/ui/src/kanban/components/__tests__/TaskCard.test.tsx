@@ -235,14 +235,17 @@ describe("TaskCard children toggle chip", () => {
     });
   });
 
-  it("renders no toggle chip on compact or done cards", () => {
+  it("renders no toggle chip on done cards (the compact branch is gone)", () => {
+    // Owner order 2026-11-21 (ticket 6e927e14908f0cc28c89106657b0bd): the
+    // compact single-row variant is removed, so the done lane is the only
+    // single-row layout and this guard covers exactly that case.
     const doneCol: Column = {
       id: "done",
       label: "Done",
       color: "#22c55e",
       accent: "#22c55e",
     };
-    const { container, unmount } = render(
+    const { container } = render(
       <TaskCard
         task={makeTask()}
         col={doneCol}
@@ -253,21 +256,6 @@ describe("TaskCard children toggle chip", () => {
     );
     expect(
       container.querySelector('[data-role="children-toggle"]'),
-    ).not.toBeInTheDocument();
-    unmount();
-
-    const rerender = render(
-      <TaskCard
-        task={makeTask()}
-        col={col}
-        compact
-        allTasks={[makeTask(), child]}
-        onOpen={vi.fn()}
-        onDragStart={vi.fn()}
-      />,
-    );
-    expect(
-      rerender.container.querySelector('[data-role="children-toggle"]'),
     ).not.toBeInTheDocument();
   });
 });
@@ -421,79 +409,46 @@ describe("TaskCard verify indicator (three states)", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("compact branch shows the glyph too", () => {
+  it("the review lane shows the glyph on the full card — no compact branch (6e927e14)", () => {
+    // Replaces "compact branch shows the glyph too": the compact variant is
+    // gone, so the verify glyph is pinned on the layout that remains.
     const { container } = renderCard(
       makeTask({ status: "review", verified: false }),
       [],
-      { col: reviewCol, compact: true },
+      { col: reviewCol },
     );
     expect(
       container.querySelector('[data-verify-state="failed"]'),
     ).toBeInTheDocument();
+    expect(container.querySelector('[data-compact="true"]')).toBeNull();
   });
 });
 
-describe("TaskCard compact inline icons (0a2fa3d6)", () => {
+describe("no compact branch (owner order 6e927e14, 2026-11-21)", () => {
   const rich = makeTask({
-    description: "This description must stay hidden in compact view",
+    description: "This description stays visible on the full card",
     tags: ["probe"],
     commentCount: 2,
     fileCount: 3,
   });
 
-  it("inlines nonzero file/children/message indicators with the title", () => {
-    const { container } = renderCard(rich, [rich, child], { compact: true });
-    const card = container.querySelector(
-      'article.task-card[data-compact="true"]',
-    )!;
-    expect(card).toBeInTheDocument();
-    // Indicators sit in the same title row as the title (no copy button).
-    const row = card.firstElementChild!;
-    const roles = [...row.children].map(
-      (el) => el.getAttribute("data-role") ?? el.tagName,
-    );
-    expect(roles).toContain("card-title");
-    expect(
-      row.querySelector('[data-role="compact-comment-count"]'),
-    ).toHaveTextContent("2");
-    expect(
-      row.querySelector('[data-role="compact-file-count"]'),
-    ).toHaveTextContent("3");
-    expect(
-      row.querySelector('[data-role="compact-child-count"]'),
-    ).toHaveTextContent("1");
-    // Title keeps its flex:1 ellipsis slot; the copy affordance is gone
-    // from compact view (owner call 0a2fa3d6) so the title reclaims its box.
-    expect(
-      row.querySelector('[data-role="card-title"]'),
-    ).toHaveStyle({ flex: "1" });
-    expect(
-      card.querySelector("button[title^='Copy task id']"),
-    ).not.toBeInTheDocument();
-  });
-
-  it("shows no description text and no badges in compact view", () => {
-    const { container } = renderCard(rich, [rich, child], { compact: true });
-    expect(container.querySelector('[data-compact="true"]')!.textContent).not.toContain(
-      "must stay hidden",
-    );
-    // Tag pills (the badges) never render on the compact branch.
-    expect(container.textContent).not.toContain("probe");
-  });
-
-  it("renders no indicators when all counts are zero", () => {
-    const { container } = renderCard(makeTask(), [makeTask()], {
-      compact: true,
-    });
+  it("a non-done card is always the full card — no data-compact, no inline indicators", () => {
+    // The compact single-row variant (0a2fa3d6) is removed product-wide, so
+    // the full card is the only layout outside the done lane: description,
+    // tag badges and footer indicators render, and no compact marker exists.
+    const { container } = renderCard(rich, [rich, child]);
+    expect(container.querySelector('[data-compact="true"]')).toBeNull();
     expect(
       container.querySelector('[data-role="compact-comment-count"]'),
     ).not.toBeInTheDocument();
     expect(
       container.querySelector('[data-role="compact-file-count"]'),
     ).not.toBeInTheDocument();
+    expect(container.textContent).toContain("stays visible on the full card");
+    expect(container.textContent).toContain("probe");
     expect(
-      container.querySelector('[data-role="compact-child-count"]'),
-    ).not.toBeInTheDocument();
+      container.querySelector("button[title^='Copy task id']"),
+    ).toBeInTheDocument();
   });
 
   it("done cards stay title-only even with nonzero counts", () => {
@@ -521,53 +476,5 @@ describe("TaskCard compact inline icons (0a2fa3d6)", () => {
     expect(
       container.querySelector('[data-role="compact-child-count"]'),
     ).not.toBeInTheDocument();
-  });
-
-  it("compact child chip toggles expansion instead of opening the task", () => {
-    // Ticket 47df2128: the compact chip used to open the task; now it
-    // toggles the persisted expansion (row click still opens).
-    const onOpen = vi.fn();
-    const onToggleExpanded = vi.fn();
-    const { container } = render(
-      <TaskCard
-        task={rich}
-        col={col}
-        compact
-        allTasks={[rich, child]}
-        onOpen={onOpen}
-        onDragStart={vi.fn()}
-        currentUserId="user-1"
-        onToggleExpanded={onToggleExpanded}
-      />,
-    );
-    const chip = container.querySelector(
-      '[data-role="compact-child-count"]',
-    )!;
-    expect(chip).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(chip);
-    expect(onToggleExpanded).toHaveBeenCalledWith("parent-task-id", true);
-    expect(onOpen).not.toHaveBeenCalled();
-  });
-
-  it("file indicator opens the files tab, comment indicator the comments tab", () => {
-    const onOpen = vi.fn();
-    const { container } = render(
-      <TaskCard
-        task={rich}
-        col={col}
-        compact
-        allTasks={[rich]}
-        onOpen={onOpen}
-        onDragStart={vi.fn()}
-      />,
-    );
-    fireEvent.click(
-      container.querySelector('[data-role="compact-file-count"]')!,
-    );
-    expect(onOpen).toHaveBeenCalledWith(rich, "files");
-    fireEvent.click(
-      container.querySelector('[data-role="compact-comment-count"]')!,
-    );
-    expect(onOpen).toHaveBeenCalledWith(rich, "comments");
   });
 });

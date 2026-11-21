@@ -47,12 +47,10 @@ function renderCard(
       task: Task,
       {
             col = lane("todo"),
-            compact = false,
             currentUserId = "user-1",
             reserveLeadingSlot,
       }: {
             col?: Column;
-            compact?: boolean;
             currentUserId?: string;
             reserveLeadingSlot?: boolean;
       } = {},
@@ -61,7 +59,6 @@ function renderCard(
             <TaskCard
                   task={task}
                   col={col}
-                  compact={compact}
                   allTasks={[]}
                   currentUserId={currentUserId}
                   reserveLeadingSlot={reserveLeadingSlot}
@@ -148,9 +145,9 @@ function paintedStatusMarks(container: HTMLElement): number {
       return count;
 }
 
-/** The layout a lane renders in: the done lane and compact view use one row. */
-function layoutFor(laneId: TaskStatus, compact: boolean): "card" | "row" {
-      return compact || laneId === "done" ? "row" : "card";
+/** The layout a lane renders in: the done lane uses one row. */
+function layoutFor(laneId: TaskStatus): "card" | "row" {
+      return laneId === "done" ? "row" : "card";
 }
 
 /** Marks expected by reading the documented rules, not the implementation. */
@@ -158,19 +155,17 @@ function expectedMarks({
       laneId,
       verified,
       isUnread,
-      compact,
 }: {
       laneId: TaskStatus;
       verified: boolean | undefined;
       isUnread: boolean;
-      compact: boolean;
 }): string[] {
       if (showsVerifyVerdict({ status: laneId }) && verified !== undefined)
             return ["verify"];
       if (laneId === "in-progress") return ["activity"];
       if (laneId === "done") return ["done"];
       if (isUnread) return ["unread"];
-      return layoutFor(laneId, compact) === "row" ? ["status"] : [];
+      return layoutFor(laneId) === "row" ? ["status"] : [];
 }
 
 const VERIFY_STATES: Array<{ label: string; verified: boolean | undefined }> = [
@@ -307,29 +302,27 @@ describe("leading slot mark arbitration", () => {
 });
 
 describe("leading slot rendering", () => {
-      for (const compact of [false, true]) {
-            for (const laneId of LANES) {
-                  const layout = layoutFor(laneId, compact);
-                  const expectedWidth = leadingSlotWidth(layout);
+      for (const laneId of LANES) {
+            const layout = layoutFor(laneId);
+            const expectedWidth = leadingSlotWidth(layout);
 
-                  for (const { label, verified } of VERIFY_STATES) {
-                        it(`${layout} lane=${laneId} verify=${label} (compact=${compact}) draws one mark in a fixed-width slot`, () => {
-                              for (const openedBy of [[], ["user-1"]]) {
-                                    const { container, unmount } = renderCard(
-                                          makeTask({
-                                                status: laneId,
-                                                verified,
-                                                openedBy,
-                                          }),
-                                          { col: lane(laneId), compact },
-                                    );
-                                    const marks = slotMarks(container);
-                                    const expected = expectedMarks({
-                                          laneId,
+            for (const { label, verified } of VERIFY_STATES) {
+                  it(`${layout} lane=${laneId} verify=${label} draws one mark in a fixed-width slot`, () => {
+                        for (const openedBy of [[], ["user-1"]]) {
+                              const { container, unmount } = renderCard(
+                                    makeTask({
+                                          status: laneId,
                                           verified,
-                                          isUnread: openedBy.length === 0,
-                                          compact,
-                                    });
+                                          openedBy,
+                                    }),
+                                    { col: lane(laneId) },
+                              );
+                              const marks = slotMarks(container);
+                              const expected = expectedMarks({
+                                    laneId,
+                                    verified,
+                                    isUnread: openedBy.length === 0,
+                              });
 
                                     // (a) never more than one mark — the dedup
                                     // guard the multi-row branch used to lack.
@@ -368,7 +361,6 @@ describe("leading slot rendering", () => {
                         });
                   }
             }
-      }
 
       it("renders a slot only for cards that draw a mark, in every lane", () => {
             // The deliverable of the owner's option B: a markless card has NO
@@ -399,7 +391,7 @@ describe("leading slot rendering", () => {
                               } else {
                                     expect(slotWidth(container)).toBe(
                                           leadingSlotWidth(
-                                                layoutFor(laneId, false),
+                                                layoutFor(laneId),
                                           ),
                                     );
                               }
@@ -526,14 +518,17 @@ describe("leading slot rendering", () => {
       });
 
       it("agrees on the verdict glyph across both layouts", () => {
+            // Owner order 2026-11-21 (ticket 6e927e14908f0cc28c89106657b0bd):
+            // the compact row layout is gone, so the row layout under test is
+            // the done lane — the only lane that still renders it.
             for (const verified of [true, false]) {
                   const cardLayout = renderCard(
                         makeTask({ status: "review", verified }),
                         { col: lane("review") },
                   );
                   const rowLayout = renderCard(
-                        makeTask({ status: "review", verified }),
-                        { col: lane("review"), compact: true },
+                        makeTask({ status: "done", verified }),
+                        { col: lane("done") },
                   );
                   expect(slotMarks(cardLayout.container)).toEqual(["verify"]);
                   expect(slotMarks(rowLayout.container)).toEqual(["verify"]);
@@ -758,7 +753,6 @@ describe("lane-scoped leading slot reservation (8545aeca)", () => {
                         ],
                         {
                               laneId: "review",
-                              compact: false,
                               currentUserId: "user-1",
                         },
                   ),
@@ -769,7 +763,6 @@ describe("lane-scoped leading slot reservation (8545aeca)", () => {
             expect(
                   laneReservesLeadingSlot([read({ id: "a", status: "todo" })], {
                         laneId: "todo",
-                        compact: false,
                         currentUserId: "user-1",
                   }),
             ).toBe(false);
@@ -779,17 +772,18 @@ describe("lane-scoped leading slot reservation (8545aeca)", () => {
             expect(
                   laneReservesLeadingSlot([read({ status: "in-progress" })], {
                         laneId: "in-progress",
-                        compact: false,
                         currentUserId: "user-1",
                   }),
             ).toBe(true);
       });
 
-      it("reserves a row-layout lane — the lane dot is its fallback mark", () => {
+      it("reserves the row-layout lane — its glyph is its mark", () => {
+            // The done lane is the only row layout left (the compact variant
+            // that used to put open lanes in a row is gone, 6e927e14), and it
+            // always draws the done glyph (or a verdict), so it reserves.
             expect(
-                  laneReservesLeadingSlot([read({ status: "review" })], {
-                        laneId: "review",
-                        compact: true,
+                  laneReservesLeadingSlot([read({ status: "done" })], {
+                        laneId: "done",
                         currentUserId: "user-1",
                   }),
             ).toBe(true);
@@ -801,7 +795,6 @@ describe("lane-scoped leading slot reservation (8545aeca)", () => {
                         [makeTask({ status: "todo", openedBy: [] })],
                         {
                               laneId: "todo",
-                              compact: false,
                               currentUserId: "user-1",
                         },
                   ),
@@ -820,7 +813,6 @@ describe("lane-scoped leading slot reservation (8545aeca)", () => {
                         ],
                         {
                               laneId: "review",
-                              compact: false,
                               currentUserId: "user-1",
                         },
                   ),
@@ -859,7 +851,7 @@ describe("lane-scoped leading slot reservation (8545aeca)", () => {
             expect(leadingSlotEl(container)).toBeNull();
       });
 
-      it("gives the row layout's lane-dot fallback a real box in kanban.css", () => {
+      it("gives the status-dot classes a real box in kanban.css", () => {
             // PORTED (P13.1): render the row-layout card and measure the
             // lane dot through getComputedStyle instead of regexing the
             // stylesheet's text. `.sd-*` once declared only a background,
@@ -877,25 +869,23 @@ describe("lane-scoped leading slot reservation (8545aeca)", () => {
                   "utf-8",
             );
             document.head.appendChild(style);
+            const dot = document.createElement("span");
             try {
-                  const { container } = renderCard(
-                        makeTask({ status: "backlog", openedBy: ["user-1"] }),
-                        {
-                              col: lane("backlog"),
-                              compact: true,
-                              currentUserId: "user-1",
-                        },
-                  );
-                  const dot = container.querySelector<HTMLElement>(
-                        ".sd-backlog",
-                  );
-                  expect(dot, "row-layout lane dot must render").not.toBeNull();
-                  const cs = getComputedStyle(dot!);
+                  // The compact row card that used to render this class inside
+                  // a lane is gone (6e927e14); `.sd-*` still paints the
+                  // column-header dot (KanbanBoard) and the leading slot's
+                  // lane dot, so the box rule stays guarded on a bare element
+                  // carrying the class.
+                  dot.className = "sd-backlog";
+                  document.body.appendChild(dot);
+                  expect(dot, "sd-backlog element must render").not.toBeNull();
+                  const cs = getComputedStyle(dot);
                   expect(cs.width).toBe("7px");
                   expect(cs.height).toBe("7px");
                   expect(cs.borderRadius).toBe("50%");
             } finally {
                   style.remove();
+                  dot.remove();
             }
       });
 });

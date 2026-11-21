@@ -6,14 +6,14 @@ import { resolveResponsiveView } from "../../viewState";
 import type { Task } from "../../types";
 
 /**
- * Status of this suite after MOBILE-KANBAN M1 (ticket k2x2agpos66jpsggi1owj1er):
- * a phone NEVER renders the list view anymore — `resolveResponsiveView`
- * resolves to board at every width <=767px (pinned first below), and the
- * view toggle that used to pick it is hidden on phones. The component itself
- * is unchanged and both hosts still pass its `mobile` prop, so the guards
- * below stay: they keep that retained prop honest for the desktop list view
- * and any host that renders it. The phone's move path is the board card's
- * coarse-pointer advance control (TaskCard.advance.test.tsx).
+ * Status of this suite after the owner order of 2026-11-21 (ticket
+ * 6e927e14908f0cc28c89106657b0bd): the board is the ONLY view at every width —
+ * list and compact and the view toggle are gone product-wide, so
+ * `resolveResponsiveView` resolves to board everywhere (pinned first below).
+ * The component itself is retained (still exported; no host renders it), so
+ * the guards below stay: they keep that retained `mobile` prop honest for any
+ * surface that still mounts the component directly. The phone's move path is
+ * the board card's coarse-pointer advance control (TaskCard.advance.test.tsx).
  */
 const tasks: Task[] = [{ id: "done-1", title: "Done item", status: "done" }];
 const props = {
@@ -26,15 +26,17 @@ const props = {
 };
 
 describe("KanbanListView mobile transitions", () => {
-  it("is unreachable on a phone: <=767px always resolves to the board (M1)", () => {
-    // The contract that replaced the old mobile-list default. Everything
-    // below pins the component's retained `mobile` prop, which no phone
-    // can select anymore — this assertion is the one that says so.
-    expect(resolveResponsiveView("list", 360)).toBe("board");
-    expect(resolveResponsiveView("compact", 767)).toBe("board");
-    // Even a stale session override cannot bring list back on a phone.
+  it("is unreachable everywhere: every width resolves to the board", () => {
+    // The contract that replaced the old saved-view/mobile-override model.
+    // Everything below pins the component's retained `mobile` prop, which no
+    // host can select anymore — this assertion is the one that says so.
+    for (const width of [360, 390, 767, 768, 1280]) {
+      expect(resolveResponsiveView("list", width)).toBe("board");
+      expect(resolveResponsiveView("compact", width)).toBe("board");
+    }
+    // Even a stale session override cannot bring list back.
     expect(resolveResponsiveView("list", 390, "list")).toBe("board");
-    expect(resolveResponsiveView("compact", 768)).toBe("compact");
+    expect(resolveResponsiveView("compact", 1280, "compact")).toBe("board");
   });
 
   it("collapses Done on desktop-to-mobile entry but preserves an in-session expansion", async () => {

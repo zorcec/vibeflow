@@ -10,7 +10,6 @@ import {
   KanbanHeader as Header,
   KanbanBoard,
   COLUMNS,
-  KanbanListView,
   DetailPanel,
   FilterBar,
   SettingsModal,
@@ -31,8 +30,6 @@ import {
   shouldAutoOpenSettings,
   markOnboarded,
   useDebouncedValue,
-  resolveResponsiveView,
-  resolveMobileOverrideAfterResize,
 } from "@vibeflow-tools/ui/kanban";
 import type { FilterState } from "@vibeflow-tools/ui/kanban";
 import { KANBAN_FONT_STACK } from "@vibeflow-tools/ui/kanban";
@@ -53,8 +50,6 @@ import {
   shouldShowWhatsNew,
   type ChangelogSection,
 } from "./whats-new.js";
-
-type ViewMode = "board" | "compact" | "list";
 
 // SAFETY: __SAAS_MODE__ is injected by the CLI build to switch UI behavior.
 const SAAS_MODE =
@@ -346,12 +341,6 @@ function BoardApp() {
     task: null,
     tab: "details",
   });
-  const [viewMode, setViewMode] = React.useState<ViewMode>("board");
-  const [mobileWidth, setMobileWidth] = React.useState(() => window.innerWidth);
-  const mobileWidthRef = React.useRef(mobileWidth);
-  const [mobileViewOverride, setMobileViewOverride] = React.useState<ViewMode | null>(null);
-  const isMobile = mobileWidth <= 767;
-  const effectiveViewMode = resolveResponsiveView(viewMode, mobileWidth, mobileViewOverride);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [whatsNew, setWhatsNew] = React.useState<{
     open: boolean;
@@ -1025,13 +1014,6 @@ function BoardApp() {
       const settings = settingsData as AppSettings;
       setAppSettings(settings);
       if (settings.visibleCols?.length) setVisibleCols(settings.visibleCols);
-      // Stale persisted "condensed" (pre-compact) maps to compact.
-      if (settings.viewMode)
-        setViewMode(
-          (settings.viewMode as string) === "condensed"
-            ? "compact"
-            : settings.viewMode,
-        );
       if (settings.panelWidth && settings.panelWidth >= 280) {
         // A width saved on a wider screen must still load on a narrower one.
         setPanelWidth(Math.min(settings.panelWidth, window.innerWidth));
@@ -1606,19 +1588,6 @@ function BoardApp() {
    *  0-width board would only make the board's own scrollbar misbehave. */
   const MIN_BOARD_BAND_PX = 280;
 
-  React.useEffect(() => {
-    const updateMobileWidth = () => {
-      const nextWidth = window.innerWidth;
-      setMobileViewOverride((override) =>
-        resolveMobileOverrideAfterResize(mobileWidthRef.current, nextWidth, override),
-      );
-      mobileWidthRef.current = nextWidth;
-      setMobileWidth(nextWidth);
-    };
-    window.addEventListener("resize", updateMobileWidth);
-    return () => window.removeEventListener("resize", updateMobileWidth);
-  }, []);
-
   // Window width drives how much of the board the panel leaves visible, and a
   // window resize while the panel is open is exactly when a card can slip under
   // it — so the value the inset and the scroll effect read has to be live.
@@ -1884,56 +1853,34 @@ function BoardApp() {
         onRemoveTagFromAll={handleRemoveTagFromAll}
         tasks={tasks}
         filter={filterState}
-        view={effectiveViewMode}
         onFilter={setFilterState}
-        onViewChange={(mode) => {
-          if (isMobile) {
-            setMobileViewOverride(mode);
-          } else {
-            setViewMode(mode);
-            void api.saveSettings({ ...appSettings, viewMode: mode });
-            setAppSettings((prev) => ({ ...prev, viewMode: mode }));
-          }
-        }}
       />
 
       <div
         className="flex flex-1 overflow-hidden"
         style={{ minHeight: 0, position: "relative" }}
       >
-        {effectiveViewMode === "list" ? (
-          <KanbanListView
-            tasks={filteredTasks}
-            mobile={isMobile}
-            searchQuery={searchQuery}
-            isLoading={isLoading}
-            onOpenPanel={(task, tab) => openPanel(task, tab)}
-            onAddTask={(status) => openPanel(null, "details", status)}
-            onDrop={handleColumnDrop}
-            onChangeStatus={(taskId, status) => patchTask(taskId, { status })}
-            onDetach={detachTaskById}
-          />
-        ) : (
-          <KanbanBoard
-            tasks={filteredTasks}
-            visibleCols={visibleCols}
-            searchQuery={searchQuery}
-            isLoading={isLoading}
-            compact={effectiveViewMode === "compact"}
-            onOpenPanel={(task, tab, colId) => openPanel(task, tab, colId)}
-            onDrop={handleColumnDrop}
-            onReorder={handleReorder}
-            onLinkChild={linkChild}
-            onTreeReorder={handleTreeReorder}
-            onTreeReparent={handleTreeReparent}
-            currentUserId={CURRENT_USER_ID}
-            onToggleExpanded={(taskId, expanded) =>
-              void setTaskExpanded(taskId, expanded)
-            }
-            onDetach={detachTaskById}
-            rightInset={boardRightInset}
-          />
-        )}
+        {/* Owner order 2026-11-21 (ticket 6e927e14908f0cc28c89106657b0bd):
+            kanban is the only view at every width — list/compact and the
+            view toggle are gone, so the board is rendered unconditionally. */}
+        <KanbanBoard
+          tasks={filteredTasks}
+          visibleCols={visibleCols}
+          searchQuery={searchQuery}
+          isLoading={isLoading}
+          onOpenPanel={(task, tab, colId) => openPanel(task, tab, colId)}
+          onDrop={handleColumnDrop}
+          onReorder={handleReorder}
+          onLinkChild={linkChild}
+          onTreeReorder={handleTreeReorder}
+          onTreeReparent={handleTreeReparent}
+          currentUserId={CURRENT_USER_ID}
+          onToggleExpanded={(taskId, expanded) =>
+            void setTaskExpanded(taskId, expanded)
+          }
+          onDetach={detachTaskById}
+          rightInset={boardRightInset}
+        />
 
         {panelState.open && (
           <div

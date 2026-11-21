@@ -351,8 +351,6 @@ interface Props {
     columnId?: TaskStatus,
   ) => void;
   onDrop: (taskId: string, newStatus: TaskStatus) => void;
-  /** Compact view: one-line done-style rows across all lanes. */
-  compact?: boolean;
   /** Called when a task is dropped at a specific position within/across columns. */
   onReorder?: (
     taskId: string,
@@ -426,7 +424,6 @@ export function KanbanBoard({
   searchQuery,
   isLoading,
   liveActivities,
-  compact,
   onOpenPanel,
   onDrop,
   onReorder,
@@ -1095,7 +1092,6 @@ export function KanbanBoard({
               allTasks={filtered}
               isLoading={isLoading}
               liveActivities={liveActivities}
-              compact={compact}
               /* Highlight the column while its background is hovered. A card or
                  children-zone intent suppresses it so the card-level indicator
                  shows instead; a "column" intent (set by handleDragOver) must
@@ -1219,8 +1215,6 @@ interface ColumnProps {
   onTreeIntent: (intent: DropIntent | null) => void;
   onTreeRowDragStart: (e: React.DragEvent, childId: string) => void;
   makeChildTarget: { taskId: string; title: string; isZone: boolean } | null;
-  /** Compact view: one-line done-style rows. */
-  compact?: boolean;
   /** True while a card drag is active — fit-screen hiding is suspended. */
   isDragging?: boolean;
   /** Current user's id — drives the per-user unread dot and expanded state. */
@@ -1266,7 +1260,6 @@ function KanbanColumn({
   onTreeIntent,
   onTreeRowDragStart,
   makeChildTarget,
-  compact,
   isDragging,
   currentUserId,
   onToggleExpanded,
@@ -1337,10 +1330,9 @@ function KanbanColumn({
     () =>
       laneReservesLeadingSlot(tasks, {
         laneId: col.id,
-        compact,
         currentUserId,
       }),
-    [tasks, col.id, compact, currentUserId],
+    [tasks, col.id, currentUserId],
   );
 
   // DONE_LIMIT is only a fallback cap for the done lane before measurement
@@ -1546,7 +1538,6 @@ function KanbanColumn({
                     task={task}
                     col={col}
                     liveActivity={liveActivities?.get(task.id)}
-                    compact={compact}
                     allTasks={allTasks}
                     onOpen={onOpenTask}
                     onOpenChild={onOpenTask}

@@ -128,14 +128,19 @@ describe("TaskCard advance control", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("renders in the compact branch too", () => {
-    renderCard(makeTask(), "in-progress", {
-      compact: true,
+  it("renders on the full-card layout — the compact branch is gone (6e927e14)", () => {
+    // Owner order 2026-11-21 (ticket 6e927e14908f0cc28c89106657b0bd): the
+    // single-row compact variant no longer exists, so every non-done lane
+    // renders the full card and the advance control must be there.
+    const { container } = renderCard(makeTask(), "in-progress", {
       onAdvanceTask: vi.fn(),
     });
     expect(
       screen.getByRole("button", { name: "Move to Review" }),
     ).toBeInTheDocument();
+    expect(
+      container.querySelector("article.task-card"),
+    ).not.toHaveAttribute("data-compact");
   });
 
   it("tints the chevron with the destination lane color when provided", () => {

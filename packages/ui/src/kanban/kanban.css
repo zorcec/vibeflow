@@ -16,21 +16,20 @@
            { white-space, font-size }  (max-width MQ — the components set
            whiteSpace/nowrap and 10-11.5px inline)
         6. .kb-filter-bar { padding, gap }        (max-width MQ — inline)
-        7. #kanban-list-view { padding }          (max-width MQ — inline)
-        8. .ws-/kb- field font-size: 16px         (max-width MQ — inline 12-14px;
+        7. .ws-/kb- field font-size: 16px         (max-width MQ — inline 12-14px;
            this one is the iOS focus-zoom floor)
-        9. .kb-empty-column { font-size }         (max-width MQ — inline 11px)
+        8. .kb-empty-column { font-size }         (max-width MQ — inline 11px)
 
    B. It must beat a MORE specific rule that would otherwise win.
-       10. .task-card.dragging's label rule above (bucket A) also has to beat
+       9. .task-card.dragging's label rule above (bucket A) also has to beat
            the :hover rule eight lines up; recorded there, not repeated here.
 
    C. It replaces a value the same file sets earlier at equal specificity.
       Source order alone would do, so these are the weakest cases — kept
       only where a later rule in another media query could reintroduce the
       old value.
-       11. .dp-status-btn { font-size }           (max-width MQ)
-       12. .kb-header-summary { font-size }       (max-width MQ)
+       10. .dp-status-btn { font-size }           (max-width MQ)
+       11. .kb-header-summary { font-size }       (max-width MQ)
 
    Deleting any of these needs a test for the state it protects; several
    (drag, orphan rows, narrow viewport) are not reachable from a story.
@@ -2307,10 +2306,6 @@ body.proto-resizing-panel {
   .kb-filter-bar > div[style*="position: relative"] {
     flex: 0 0 auto;
   }
-  #kanban-list-view {
-    padding: 12px 8px !important;
-    min-width: 0;
-  }
   /* ── Add-task footer stays on screen (real-device mobile fix) ──
      The panel container's 360px floor is wider than small phones, so it
      used to force a horizontal overflow that could push the footer
@@ -2398,15 +2393,6 @@ body.proto-resizing-panel {
   /* The per-group "Add task to …" button measured 22x22 and the "Add comment"
      button in a row measured 16x12 — both are real controls, so they get a
      thumb-sized box (the icon inside stays small). */
-  #kanban-list-view [title^="Add task to"],
-  #kanban-list-view [title$="comment(s)"],
-  #kanban-list-view [title="Add comment"] {
-    min-width: 44px;
-    min-height: 44px;
-  }
-
-  /* The list-view group collapse toggle is 18x18 and has no larger parent
-     handler, so the button itself must be thumb-sized on a phone. */
   .kb-group-toggle {
     min-width: 44px;
     min-height: 44px;
@@ -2512,13 +2498,6 @@ body.proto-resizing-panel {
      ADR-0002 phone carve-out (2026-11-21). */
   #kanban-board .board-column {
     min-width: 0;
-  }
-
-  /* Kanban only (spec point 4): list and compact are removed on phones, so
-     the view toggle goes with them — inline `display: flex` needs
-     `!important` to yield (same trick as `.kb-header-desktop-actions`). */
-  .kb-view-toggle {
-    display: none !important;
   }
 
   /* No horizontal board scroll on a phone → the custom strip scrollbar has

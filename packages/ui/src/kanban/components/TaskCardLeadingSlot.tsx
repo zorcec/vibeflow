@@ -12,7 +12,7 @@ import {
  * The leading slot at the head of a card's title row.
  *
  * Both TaskCard layouts draw this slot — the multi-row card for the board's open
- * lanes, and the single-row card used by the done lane and by the compact view.
+ * lanes, and the single-row card used by the done lane.
  * Each layout used to build the slot inline and the two disagreed: the
  * single-row copy chose one glyph while the multi-row copy appended a loader, a
  * verify glyph and an unread dot, so a single card could carry three marks and
@@ -80,8 +80,6 @@ export function leadingSlotWidth(layout: LeadingSlotLayout): number {
 export interface LeadingSlotLane {
      /** The lane id the cards sit in (a task status). */
      laneId: string;
-     /** The card layout this lane renders — the compact view uses the row layout. */
-     compact?: boolean;
      currentUserId?: string;
 }
 
@@ -100,9 +98,9 @@ export interface LeadingSlotLane {
  */
 export function laneReservesLeadingSlot(
      tasks: readonly Task[],
-     { laneId, compact, currentUserId }: LeadingSlotLane,
+     { laneId, currentUserId }: LeadingSlotLane,
 ): boolean {
-     const layout = layoutForLane(laneId, compact);
+     const layout = layoutForLane(laneId);
      const isInProgress = laneId === "in-progress";
      const isDone = laneId === "done";
      return tasks.some(
@@ -119,12 +117,9 @@ export function laneReservesLeadingSlot(
      );
 }
 
-/** The layout a lane renders in: the done lane and the compact view use one row. */
-function layoutForLane(
-     laneId: string,
-     compact: boolean | undefined,
-): LeadingSlotLayout {
-     return compact || laneId === "done" ? "row" : "card";
+/** The layout a lane renders in: the done lane uses one row. */
+function layoutForLane(laneId: string): LeadingSlotLayout {
+     return laneId === "done" ? "row" : "card";
 }
 
 export interface LeadingSlotInput {

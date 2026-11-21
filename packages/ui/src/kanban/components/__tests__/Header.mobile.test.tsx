@@ -127,23 +127,28 @@ describe("shared mobile header and filter reflow", () => {
     expect(ruleIn(narrowMedia(), ".kb-mobile-menu").style.display).toBe("flex");
   });
 
-  it("keeps status, filter, and view controls in a wrapping narrow layout", () => {
+  it("keeps status and filter controls in a wrapping narrow layout", () => {
     const view = render(
       <FilterBar
         tasks={[]}
         filter={{ status: "all", component: null, type: null, user: null, tags: [] }}
         onFilter={vi.fn()}
-        view="list"
       />,
     );
     expect(view.getByTestId("filter-bar").className).toContain("kb-filter-bar");
     expect(view.getByRole("button", { name: "All" })).toBeTruthy();
     expect(view.getByRole("button", { name: "Tags" })).toBeTruthy();
     expect(view.getByRole("button", { name: "User" })).toBeTruthy();
-    // Desktop contract: the toggle still EXISTS in the DOM (>=768px keeps
-    // all three views). That it is HIDDEN at <=767px — M1, kanban-only
-    // phones — is pinned in the dedicated test below.
-    expect(view.getByRole("button", { name: "Board view" })).toBeTruthy();
+    // Owner order 2026-11-21 (ticket 6e927e14908f0cc28c89106657b0bd): the
+    // view toggle is gone from the filter bar at EVERY width — no
+    // `.kb-view-toggle` container and no Board/Compact/List button.
+    expect(view.container.querySelector(".kb-view-toggle")).toBeNull();
+    for (const title of ["Board view", "Compact view", "List view"]) {
+      expect(
+        view.container.querySelector(`button[title="${title}"]`),
+        `no ${title} button may exist`,
+      ).toBeNull();
+    }
 
     // PORTED from stylesheet-text regexes to parsed CSSOM rules.
     const media = narrowMedia();
@@ -199,14 +204,17 @@ describe("shared mobile header and filter reflow", () => {
   }
 
   /**
-   * MOBILE-KANBAN M1 (ticket k2x2agpos66jpsggi1owj1er): the phone header
-   * carries the lane toggle and NOT the view toggle. The lane pill SLOT is
-   * the Header's half of the contract (KanbanBoard portals the pills in —
-   * the board half lives in KanbanBoard.mobile-lane.test.tsx); the
-   * view-toggle disappearance is this file's half, since the old
-   * "view controls on a phone" guard was exactly what M1 removed.
+   * MOBILE-KANBAN M1 (ticket k2x2agpos66jpsggi1owj1er) — extended by the
+   * owner order of 2026-11-21 (ticket 6e927e14908f0cc28c89106657b0bd): the
+   * phone header carries the lane toggle, and the view toggle is gone at
+   * EVERY width — list and compact are removed product-wide, not just on
+   * phones. The lane pill SLOT is the Header's half of the contract
+   * (KanbanBoard portals the pills in — the board half lives in
+   * KanbanBoard.mobile-lane.test.tsx); the view-toggle disappearance is
+   * this file's half, since the old "view controls on a phone" guard was
+   * exactly what the order removed.
    */
-  it("hosts the lane-toggle slot and drops the view toggle at <=767px", () => {
+  it("hosts the lane-toggle slot and carries no view toggle at any width", () => {
     const view = renderHeader();
 
     // Header owns the mount point the board portals into.
@@ -226,8 +234,25 @@ describe("shared mobile header and filter reflow", () => {
     // header can never show a stray pill row.
     expect(baseRule(".kb-lane-pills").style.display).toBe("none");
 
-    // Kanban only: the view toggle (list/compact/board) is gone on phones.
-    expect(ruleIn(media, ".kb-view-toggle").style.display).toBe("none");
+    // Kanban only (owner order 2026-11-21): the view toggle (list/compact/
+    // board) is gone at EVERY width — no `.kb-view-toggle` rule survives
+    // anywhere in the sheet, inside or outside a media block.
+    const toggleRules: CSSStyleRule[] = [];
+    const walkForToggle = (rules: CSSRuleList) => {
+      for (const rule of Array.from(rules)) {
+        if (rule instanceof CSSMediaRule) walkForToggle(rule.cssRules);
+        else if (
+          rule instanceof CSSStyleRule &&
+          rule.selectorText.split(",").map((s) => s.trim()).includes(".kb-view-toggle")
+        ) {
+          toggleRules.push(rule);
+        }
+      }
+    };
+    for (const sheet of Array.from(document.styleSheets)) {
+      walkForToggle(sheet.cssRules);
+    }
+    expect(toggleRules, "no .kb-view-toggle rule may exist").toEqual([]);
 
     // The pills are primary controls, so they carry the block's audited
     // 44px tap-target floor — not the prototype's 36px.

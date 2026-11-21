@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { render, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { Header } from "../Header";
+import { FilterBar } from "../FilterBar";
 import { KanbanBoard } from "../KanbanBoard";
 import type { Task, TaskStatus } from "../../types";
 
@@ -15,7 +16,10 @@ import type { Task, TaskStatus } from "../../types";
  *     `#kb-lane-pills` slot, KanbanBoard portals into it) and are the
  *     primary toggle — tapping one swaps which lane is mounted;
  *  3. at >=768px nothing changes: every visible lane mounts and the header
- *     slot stays empty (kanban.css hides it at every width by default).
+ *     slot stays empty (kanban.css hides it at every width by default);
+ *  4. extended by the owner order of 2026-11-21 (ticket
+ *     6e927e14908f0cc28c89106657b0bd): the board is the ONLY view at every
+ *     width — no `#kanban-list-view`, no view toggle, no compact variant.
  *
  * jsdom has no `matchMedia`, so the desktop test needs no mock; the phone
  * test installs the same `Object.defineProperty(window, "matchMedia", …)`
@@ -99,6 +103,48 @@ function mountedLanes(container: HTMLElement): string[] {
     (el) => el.getAttribute("data-column-id") ?? "?",
   );
 }
+
+describe("the board is the only view at every width (6e927e14)", () => {
+  it("mounts the board with no list view and no view toggle, phone or desktop", async () => {
+    // Owner order 2026-11-21 (ticket 6e927e14908f0cc28c89106657b0bd): list
+    // and compact and their toggle are gone product-wide, so the surface
+    // always renders kanban columns — at BOTH ends of the width range.
+    for (const isPhone of [true, false]) {
+      setPhoneViewport(isPhone);
+      const view = render(
+        <>
+          <Header
+            projectName="Kanban only"
+            searchQuery=""
+            taskSummary="7 open"
+            onSearchChange={vi.fn()}
+            onSettings={vi.fn()}
+          />
+          <FilterBar
+            tasks={TASKS}
+            filter={{ status: "all", component: null, type: null, user: null, tags: [] }}
+            onFilter={vi.fn()}
+          />
+          <KanbanBoard
+            tasks={TASKS}
+            visibleCols={["backlog", "todo", "in-progress", "review", "done"]}
+            searchQuery=""
+            onOpenPanel={vi.fn()}
+            onDrop={vi.fn()}
+          />
+        </>,
+      );
+      await waitFor(() =>
+        expect(view.container.querySelectorAll(".board-column").length).toBeGreaterThan(0),
+      );
+      expect(view.container.querySelector("#kanban-list-view")).toBeNull();
+      expect(view.container.querySelector(".kb-view-toggle")).toBeNull();
+      // No card may carry the removed compact marker either.
+      expect(view.container.querySelector('[data-compact="true"]')).toBeNull();
+      view.unmount();
+    }
+  });
+});
 
 describe("phone (<=767px): one lane at a time, pills in the header", () => {
   it("mounts only the active lane — every other lane is absent from the DOM", async () => {

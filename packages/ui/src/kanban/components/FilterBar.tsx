@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, List, Rows3, Tag, ChevronDown, X, User } from 'lucide-react';
+import { Tag, ChevronDown, X, User } from 'lucide-react';
 import type { Task, TaskStatus, TaskType } from '../types';
 import { TASK_TYPE_FILTER_OPTIONS } from '../../task-types';
 import { Button } from '../../primitives';
@@ -34,8 +34,6 @@ interface Props {
   tasks: Task[];
   filter: FilterState;
   onFilter: (f: FilterState) => void;
-  view?: 'board' | 'compact' | 'list';
-  onViewChange?: (view: 'board' | 'compact' | 'list') => void;
   activityCounter?: React.ReactNode;
   /** Ticket db2fce26 (UI half only): when present, each tag in the tags
       filter gets a hover/focus-revealed "Remove" action that asks for
@@ -47,7 +45,7 @@ interface Props {
   countTasksWithTag?: (tag: string) => number;
 }
 
-export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChange, activityCounter, onRemoveTagFromAll, countTasksWithTag }: Props) {
+export function FilterBar({ tasks, filter, onFilter, activityCounter, onRemoveTagFromAll, countTasksWithTag }: Props) {
   const [typeOpen, setTypeOpen] = React.useState(false);
   const [userOpen, setUserOpen] = React.useState(false);
   const [tagOpen, setTagOpen] = React.useState(false);
@@ -398,30 +396,6 @@ export function FilterBar({ tasks, filter, onFilter, view = 'board', onViewChang
           )}
       </div>
 
-      {/* View toggle */}
-      <div className="kb-view-toggle" style={{ display:'flex', alignItems:'center', background:'var(--t-card)', border:'1px solid var(--t-border)', borderRadius:8, padding:2, gap:0 }}>
-        <button
-          title="Board view"
-          style={{ padding:'4px 7px', borderRadius:5, background: view === 'board' ? 'var(--t-surface)' : 'none', color: view === 'board' ? 'var(--t-text-sub)' : 'var(--t-text-body)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', transition:'background .12s,color .12s' }}
-          onClick={(e) => { e.stopPropagation(); onViewChange?.('board'); }}
-        >
-          <LayoutDashboard style={{ width:13, height:13 }} />
-        </button>
-        <button
-          title="Compact view"
-          style={{ padding:'4px 7px', borderRadius:5, background: view === 'compact' ? 'var(--t-surface)' : 'none', color: view === 'compact' ? 'var(--t-text-sub)' : 'var(--t-text-body)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', transition:'background .12s,color .12s' }}
-          onClick={(e) => { e.stopPropagation(); onViewChange?.('compact'); }}
-        >
-          <Rows3 style={{ width:13, height:13 }} />
-        </button>
-        <button
-          title="List view"
-          style={{ padding:'4px 7px', borderRadius:5, background: view === 'list' ? 'var(--t-surface)' : 'none', color: view === 'list' ? 'var(--t-text-sub)' : 'var(--t-text-body)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', transition:'background .12s,color .12s' }}
-          onClick={(e) => { e.stopPropagation(); onViewChange?.('list'); }}
-        >
-          <List style={{ width:13, height:13 }} />
-        </button>
-      </div>
       {/* Ticket db2fce26: per-tag bulk-remove confirmation (UI half only).
           Escape aborts via ModalBase; focus returns to the tag on close. */}
       {pendingRemove && (

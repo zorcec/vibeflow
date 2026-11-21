@@ -30,7 +30,6 @@ interface Props {
       task: Task;
       col: Column;
       liveActivity?: LiveActivity;
-      compact?: boolean;
       allTasks: Task[];
       onOpen: (task: Task, tab?: "details" | "comments" | "files") => void;
       onOpenTask?: (task: Task, tab?: "details" | "comments" | "files") => void;
@@ -401,25 +400,6 @@ const CARD_FOOTER_STYLE: React.CSSProperties = {
       minWidth: 0,
       flexWrap: "nowrap",
 };
-// Compact title-row indicators (file / children / messages, 0a2fa3d6): the
-// normal card's footer icons moved inline with the title. Rendered only
-// when nonzero so an empty card stays a clean 1:1 title clone; each opens
-// the same tab the footer button would (children opens the task, whose
-// tree lives in the panel — a single row cannot expand inline).
-const COMPACT_INDICATOR_STYLE: React.CSSProperties = {
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 2,
-      padding: "1px 3px",
-      borderRadius: 3,
-      border: "none",
-      background: "transparent",
-      cursor: "pointer",
-      fontSize: 9,
-      fontWeight: 600,
-      color: "var(--t-text-muted)",
-      flexShrink: 0,
-};
 const SPACER_STYLE: React.CSSProperties = { flex: 1 };
 
 /**
@@ -478,7 +458,6 @@ export const TaskCard = React.memo(function TaskCard({
       task,
       col,
       liveActivity,
-      compact,
       allTasks,
       onOpen,
       onOpenTask,
@@ -631,14 +610,10 @@ export const TaskCard = React.memo(function TaskCard({
             onToggleExpanded?.(task.id, next);
       }
 
-      // Compact view (any lane) or done column: single-row card.
-      // Done cards stay title-only; compact cards additionally inline the
-      // nonzero file / children / message indicators with the title
-      // (0a2fa3d6) — no description, no badges either way. Compact cards
-      // carry no copy-ID button: its 22px box was reserved even while
-      // invisible (opacity 0), stealing title width for no affordance.
-      const showInlineIcons = !!compact && !isDone;
-      if (compact || isDone) {
+      // Done column: single-row, title-only card. The compact view that
+      // shared this branch is gone (owner order 2026-11-21, ticket
+      // 6e927e14908f0cc28c89106657b0bd) — every other lane is the full card.
+      if (isDone) {
             return (
                   <article
                         className="task-card"
@@ -648,7 +623,6 @@ export const TaskCard = React.memo(function TaskCard({
                         // out on a board that was rendering perfectly well.
                         data-role="task-card"
                         data-task-id={task.id}
-                        data-compact={compact ? "true" : undefined}
                         style={{
                               ...DONE_ARTICLE_STYLE,
                         }}
@@ -684,65 +658,10 @@ export const TaskCard = React.memo(function TaskCard({
                                     title={task.title}
                                     muted={isDone}
                               />
-                              {showInlineIcons && commentCount > 0 && (
-                                    <button
-                                          data-role="compact-comment-count"
-                                          title={`${commentCount} comment(s)`}
-                                          style={COMPACT_INDICATOR_STYLE}
-                                          onClick={(e) => {
-                                                e.stopPropagation();
-                                                onOpen(task, "comments");
-                                          }}
-                                    >
-                                          <MessageCircle
-                                                style={{ width: 9, height: 9 }}
-                                          />
-                                          {commentCount}
-                                    </button>
-                              )}
-                              {showInlineIcons && fileCount > 0 && (
-                                    <button
-                                          data-role="compact-file-count"
-                                          title={`${fileCount} file(s) attached`}
-                                          style={COMPACT_INDICATOR_STYLE}
-                                          onClick={(e) => {
-                                                e.stopPropagation();
-                                                onOpen(task, "files");
-                                          }}
-                                    >
-                                          <Paperclip
-                                                style={{ width: 9, height: 9 }}
-                                          />
-                                          {fileCount}
-                                    </button>
-                              )}
-                              {showInlineIcons && childCount > 0 && (
-                                    <button
-                                          data-role="compact-child-count"
-                                          title={`${childCount} subtask(s) — activate to ${expanded ? "collapse" : "expand"} (row click opens the task)`}
-                                          aria-expanded={expanded}
-                                          data-expanded={expanded || undefined}
-                                          style={COMPACT_INDICATOR_STYLE}
-                                          onClick={(e) => {
-                                                // Ticket 47df2128: the compact chip toggles the
-                                                // persisted expansion (visible on the board view)
-                                                // instead of opening the task — row click still opens.
-                                                e.stopPropagation();
-                                                toggleExpanded(!expanded);
-                                          }}
-                                    >
-                                          <span>⤷</span>
-                                          {childCount}
-                                    </button>
-                              )}
                               {/* Advance (302e9cab) sits before the copy pill so the
-                                  copy pill stays flush right. Compact rows carry no
-                                  copy pill; the advance control caps the row. */}
+                                  copy pill stays flush right. */}
                               {advanceButton}
-                              {/* No CopyIdButton in compact view (owner call 0a2fa3d6):
-                                  the pill keeps its 22px box while invisible. Done-lane
-                                  cards in board view keep theirs. */}
-                              {!compact && <CopyIdButton taskId={task.id} />}
+                              <CopyIdButton taskId={task.id} />
                         </div>
                   </article>
             );

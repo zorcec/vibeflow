@@ -18,11 +18,11 @@ import type { Task, Column, TaskStatus } from "../../types";
  * claim is made — keyboard and screen-reader users get the name from the
  * accessible tree instead. No badge chip, no redesign.
  *
- * Multi-row cards (the board's open lanes) draw StatusDot; single-row
- * cards (compact view) reuse the leading slot's status dot, upgraded with
- * the same name/tooltip/AT contract. The done lane keeps its green done
- * glyph by the existing mark precedence, so done is covered at the
- * StatusDot component level.
+ * Multi-row cards (the board's open lanes) draw StatusDot; the single-row
+ * card that remains is the done lane, whose leading slot draws the done
+ * glyph — done is therefore covered at the StatusDot component level. The
+ * compact single-row variant that used to reuse this dot on every lane is
+ * gone (owner order 2026-11-21, ticket 6e927e14908f0cc28c89106657b0bd).
  */
 
 /** Lanes whose board card is the multi-row layout. */
@@ -104,8 +104,13 @@ describe("TaskCard status dot (kwaz437j)", () => {
     },
   );
 
-  it("row layout (compact) carries the same colour, name and tooltip", () => {
-    const { container } = renderCard(makeTask("review"), { compact: true });
+  it("a non-done lane always draws the multi-row dot — no compact row layout (6e927e14)", () => {
+    // Replaces "row layout (compact) carries the same colour, name and
+    // tooltip": with the compact variant removed, a review card is the
+    // multi-row card, so the same colour/name/tooltip/AT contract is pinned
+    // on the layout that remains (the `compact` prop no longer exists).
+    const { container } = renderCard(makeTask("review"));
+    expect(container.querySelector('[data-compact="true"]')).toBeNull();
     const dot = statusDot(container);
     expect(dot).toHaveAttribute("data-status", "review");
     expect(dot.style.background).toBe(STATUS_COLORS.review);
