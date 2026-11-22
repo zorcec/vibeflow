@@ -184,7 +184,12 @@ export function resolveRootTask(tasks: Task[], taskId: string): string {
 /** Return all descendant ids (children, grandchildren, …) cycle-safe. */
 export function getDescendants(tasks: Task[], rootId: string): string[] {
  const result: string[] = [];
- const visited = new Set<string>();
+ // The root is seeded as visited so it can NEVER be reported as its own
+ // descendant. A task whose links name a child as its parent (a duplicated,
+ // reversed edge — the shape the demo seeder produced, ticket e5176b6c'
+ // follow-up) used to be reachable from that child, which made the whole
+ // leaf set empty and the inline children tree render nothing.
+ const visited = new Set<string>([rootId]);
  const queue = [rootId];
  while (queue.length > 0) {
   const id = queue.shift()!;

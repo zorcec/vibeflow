@@ -574,3 +574,36 @@ describe("groupDetailRelations — deterministic ordering", () => {
     expect(got).toEqual(["c_c", "c_a", "c_b"]);
   });
 });
+
+describe("getDescendants — the root is never its own descendant (children-tree regression)", () => {
+  const base = (id: string, links: { taskId: string; type: "parent" }[], status = "todo") =>
+    ({ id, title: id, description: "", status, selector: "/", links }) as never;
+
+  it("survives a reversed duplicate edge without emptying the leaf set", () => {
+    // The demo seeder used to write BOTH edges: each child names the hero as
+    // its parent AND the hero named each child as its parent. Under this
+    // convention the second edge means "the hero's parent is the child", so the
+    // walk reached the hero from its own child and every leaf was filtered out
+    // — the inline children tree rendered nothing (owner report 2026-11-21).
+    const tasks = [
+      base("hero", [
+        { taskId: "a", type: "parent" },
+        { taskId: "b", type: "parent" },
+      ]),
+      base("a", [{ taskId: "hero", type: "parent" }]),
+      base("b", [{ taskId: "hero", type: "parent" }]),
+    ];
+    expect(getDescendants(tasks, "hero").sort()).toEqual(["a", "b"]);
+    expect(getLeafDescendants(tasks, "hero").map((t) => t.id).sort()).toEqual(["a", "b"]);
+  });
+
+  it("still walks a real multi-level tree", () => {
+    const tasks = [
+      base("root", []),
+      base("mid", [{ taskId: "root", type: "parent" }]),
+      base("leaf", [{ taskId: "mid", type: "parent" }]),
+    ];
+    expect(getDescendants(tasks, "root").sort()).toEqual(["leaf", "mid"]);
+    expect(getLeafDescendants(tasks, "root").map((t) => t.id)).toEqual(["leaf"]);
+  });
+});
