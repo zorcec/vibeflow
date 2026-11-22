@@ -19,6 +19,7 @@ export type OperationId =
   | "listTasks"
   | "getTask"
   | "getFile"
+  | "getNotifications"
   | "getProject"
   | "createTask"
   | "updateTask"

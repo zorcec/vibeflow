@@ -13,6 +13,7 @@
 import { z } from "zod";
 import { resolve } from "node:path";
 import { getCurrentBranch, getProjectName } from "./config.js";
+import { fetchNotifications, type FetchResult } from "./notifications-fetch.js";
 
 // ── Context ────────────────────────────────────────────────────────────────
 
@@ -179,6 +180,8 @@ import {
   type GetFileInputType,
   GetIntegrationGuideInput,
   type GetIntegrationGuideInputType,
+  GetNotificationsInput,
+  type GetNotificationsInputType,
   GetProjectInput,
   type GetProjectInputType,
   GetTaskInput,
@@ -207,6 +210,8 @@ export {
   type GetFileInputType,
   GetIntegrationGuideInput,
   type GetIntegrationGuideInputType,
+  GetNotificationsInput,
+  type GetNotificationsInputType,
   GetProjectInput,
   type GetProjectInputType,
   GetTaskInput,
@@ -272,6 +277,36 @@ export async function getProject(
 
 // createTask moved to `core/operations/tasks.ts` (re-exported below).
 
+/**
+ * The project's notification feed (`get_notifications`, ticket ae96cee7):
+ * create/update/claim/delete/comment/verify events newer than `since`.
+ *
+ * Read-only and CLI-only (api-core's CLI_ONLY_MCP_TOOLS): the feed lives in
+ * the caller's project — its own `.vibeflow/notifications.jsonl`, or the board
+ * that project is linked to — so a hosted server has nothing to read. The
+ * backend follows `ctx.mode`, which the MCP boundary refreshes per call from
+ * the project's own credential. A refusal (an explicit online read on an
+ * unlinked/invalid target, an unreachable or malformed answer) is returned
+ * as-is, never downgraded to a different feed.
+ */
+export async function getNotifications(
+  ctx: OperationContext,
+  input: GetNotificationsInputType,
+): Promise<OperationResult<Omit<FetchResult, "ok">>> {
+  const result = await fetchNotifications(ctx.projectDir, {
+    target: input.target ?? (ctx.mode === "saas" ? "online" : "local"),
+    ...(input.since !== undefined ? { since: input.since } : {}),
+    ...(input.limit !== undefined ? { limit: input.limit } : {}),
+  });
+  if (!result.ok) {
+    return { ok: false, error: { code: result.code, message: result.message } };
+  }
+  // The envelope's own `ok` replaces the fetch union's discriminator, so the
+  // payload is the feed alone — the same keys the CLI's --json prints.
+  const { ok: _ok, ...data } = result;
+  return { ok: true, data };
+}
+
 // updateTask moved to `core/operations/tasks.ts` (re-exported below).
 
 // claimNextTask moved to `core/operations/tasks.ts` (re-exported below).
@@ -279,7 +314,6 @@ export async function getProject(
 // addComment moved to `core/operations/comments.ts` (re-exported below).
 
 // attachFile moved to `core/operations/files.ts` (re-exported below).
-
 // REMOVED (ticket 53b622fc, BREAKING): exportPrompt — the whole-board
 // prompt exporter — was deleted with its export_prompt tool. Its single-task
 // read is covered by get_task and its human render by `vibeflow tasks --get`

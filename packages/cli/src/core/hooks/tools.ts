@@ -62,7 +62,7 @@ const container: HookCell = { status: "unsupported", reason: "container" };
  * one hook execution per (tool, activity) unit of work.
  */
 export const HOOK_TOOLS: readonly HookToolSpec[] = [
-  // ── CLI (15 canonical + 1 container) ──────────────────────────────
+  // ── CLI (17 canonical + 1 container) ──────────────────────────────
   {
     tool: "tasks",
     surface: "cli",
@@ -72,6 +72,9 @@ export const HOOK_TOOLS: readonly HookToolSpec[] = [
   { tool: "pull", surface: "cli", before: gateable("pull"), after: gateable("pull") },
   { tool: "push", surface: "cli", before: gateable("push"), after: gateable("push") },
   { tool: "verify", surface: "cli", before: gateable("verify"), after: gateable("verify") },
+  // Notification feed read (ticket ae96cee7): reads/monitors never gate a
+  // write, so `.before` is refused; `.after` narrates the read.
+  { tool: "notifications", surface: "cli", before: notGateable, after: readAfter() },
   { tool: "serve", surface: "cli", before: notGateable, after: readAfter() },
   { tool: "kanban", surface: "cli", before: notGateable, after: readAfter() },
   // Human first-run demo (ec65a901): seeds a disposable store at
@@ -106,7 +109,7 @@ export const HOOK_TOOLS: readonly HookToolSpec[] = [
   },
   { tool: "authors.link", surface: "cli", before: notGateable, after: readAfter() },
   { tool: "authors", surface: "cli", before: container, after: container },
-  // ── MCP (13) ──────────────────────────────────────────────────────
+  // ── MCP (14) ──────────────────────────────────────────────────────
   { tool: "create_task", surface: "mcp", before: gateable("task.create"), after: gateable("task.create") },
   { tool: "update_task", surface: "mcp", before: gateable("task.update"), after: gateable("task.update") },
   { tool: "claim_next_task", surface: "mcp", before: gateable("task.claim"), after: gateable("task.claim") },
@@ -116,6 +119,7 @@ export const HOOK_TOOLS: readonly HookToolSpec[] = [
   { tool: "list_tasks", surface: "mcp", before: notGateable, after: readAfter() },
   { tool: "get_task", surface: "mcp", before: notGateable, after: readAfter() },
   { tool: "get_file", surface: "mcp", before: notGateable, after: readAfter() },
+  { tool: "get_notifications", surface: "mcp", before: notGateable, after: readAfter() },
   { tool: "attach_file", surface: "mcp", before: notGateable, after: readAfter() },
   { tool: "get_project", surface: "mcp", before: notGateable, after: readAfter() },
   { tool: "start_kanban", surface: "mcp", before: notGateable, after: readAfter() },

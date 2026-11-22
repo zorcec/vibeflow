@@ -49,14 +49,14 @@ describe("MCP-from-manifest parity", () => {
     await env.cleanup();
   });
 
-  it("1: names parity — tools/list === manifest, exactly 13, no extras", () => {
+  it("1: names parity — tools/list === manifest, exactly 14, no extras", () => {
     const listed = tools.map((t) => t.name).sort();
     const manifestNames = manifest.map((m) => m.name).sort();
     expect(listed).toEqual(manifestNames);
     // Ticket 53b622fc: export_prompt was REMOVED (breaking) — 12 became 11.
     // Then `pull` was added (board -> local additive sync), back to 12.
     // Then `get_file` (attachment download, mirror of attach_file), now 13.
-    expect(tools.length).toBe(13);
+    expect(tools.length).toBe(14);
   });
 
   it("1b: push_tasks is absent from tools/list (hidden CLI push, no MCP tool)", () => {
@@ -104,6 +104,9 @@ describe("MCP-from-manifest parity", () => {
       add_comment: { id: 123, comment: "x" },
       attach_file: { id: 123, filename: "a.md", contentB64: "aGk=" },
       get_file: { id: 123, filename: "a.md" },
+      // `limit` is a bounded integer in the manifest; a string must be refused
+      // rather than silently defaulted to the feed's own page size.
+      get_notifications: { limit: "not-a-number" },
       verify_task: { id: 123, url: "http://ok" },
       // `port` is a bounded integer in the manifest; a string must be refused
       // rather than coerced into a NaN bind.

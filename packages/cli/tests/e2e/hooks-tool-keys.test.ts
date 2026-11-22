@@ -398,7 +398,7 @@ describe("CLI keys: verify gate (engine needs a browser; the gate is proven here
   });
 });
 
-describe("MCP keys (all 13, HTTP transport)", () => {
+describe("MCP keys (all 14, HTTP transport)", () => {
   let env: McpTestEnv;
   let mcpProject!: string;
 

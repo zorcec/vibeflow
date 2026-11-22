@@ -91,12 +91,13 @@ describe("MCP drift test", () => {
     expect(unique.size).toBe(names.length);
   });
 
-  it("all 13 MCP tools are registered", () => {
+  it("all 14 MCP tools are registered", () => {
     // Ticket 53b622fc: export_prompt was REMOVED (breaking) — 12 became 11.
     // get_task covers the single-task read, `vibeflow tasks --get` the render.
     // `pull` (board → local additive sync) brings the count back to 12, and
     // `get_file` (ticket q2xx837y1ji49vwgq6504rt1: download an attachment's
-    // bytes, the read mirror of attach_file) brings it to 13.
+    // bytes, the read mirror of attach_file) brings it to 13. `get_notifications`
+    // (ticket ae96cee7: the task-mutation feed; CLI-only) makes 14.
     const expectedTools = [
       "add_comment",
       "attach_file",
@@ -104,6 +105,7 @@ describe("MCP drift test", () => {
       "create_task",
       "get_file",
       "get_integration_guide",
+      "get_notifications",
       "get_project",
       "get_task",
       "list_tasks",
@@ -121,6 +123,7 @@ describe("MCP drift test", () => {
       "list_tasks",
       "get_task",
       "get_file",
+      "get_notifications",
       "get_project",
       "get_integration_guide",
     ];
@@ -269,6 +272,7 @@ describe("MCP drift test", () => {
       "login",
       "logout",
       "mcp",
+      "notifications",
       "openapi",
       // Board → local additive sync (the inverse of hidden push); exposed as
       // the `pull` MCP tool, so it must never be classified as unexposed.

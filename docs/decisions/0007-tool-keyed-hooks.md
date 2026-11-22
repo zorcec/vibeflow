@@ -4,7 +4,7 @@
 - Date: 2026-11-06
 - Supersedes: ADR-0006
 - Governed: `packages/cli/src/core/hooks/`
-- Reviewed: 2026-11-21
+- Reviewed: 2026-11-22
 - Decided by: owner (ticket d552207737ba3ee1a22ad6476789fc, Hooks v2)
 
 ## Background
@@ -13,7 +13,7 @@ ADR-0006 keyed hooks by internal event (`after-task.update.mjs`) and materialise
 
 ## Decision
 
-1. **Key = tool.** One hook file per `<tool>.<phase>`; the tool set is the canonical commander command paths (16 — `demo` added 2026-11-21 for the local demo board, an ordinary registry row like `kanban`) plus the 13 MCP tool names, with hidden aliases (`login`→`auth.login`) resolving to their canonical key and containers (`authors`) explicitly unrunnable. Adding a command/tool without adding a registry row fails the guard test.
+1. **Key = tool.** One hook file per `<tool>.<phase>`; the tool set is the canonical commander command paths (`demo` added 2026-11-21 for the local demo board and `notifications` 2026-11-22 for the local notification feed — ordinary registry rows like `kanban`) plus every MCP tool name (`get_notifications` added 2026-11-22), with hidden aliases (`login`→`auth.login`) resolving to their canonical key and containers (`authors`) explicitly unrunnable. Adding a command/tool without adding a registry row fails the guard test.
 2. **Two granules, one execution rule.** The file granule is the tool; the payload granule is the 8 activities; one execution per (tool, activity) unit of work and exactly one null-activity execution for a successful invocation that emitted nothing.
 3. **The envelope is v2**: `tool`, `surface`, `phase: before|after`, `activity: …|null`, `payload: …|null`, and the owner generic contract `task`/`activity`/`activityObject`/`instructions`. The `event` field is removed (it always equalled `activity`); `schemaVersion` is 2.
 4. **The after-envelope carries the confirmed record.** `task.create/update/claim/comment` carry the post-write snapshot (`task.delete` carries the pre-delete row), `activityObject` carries the secondary record (changed keys, written comment, claim filters), and run intents (`push`/`pull`/`verify`) carry `task: null` by design. The same snapshot rule governs `before` envelopes (best-known intent, never a generated id).
@@ -23,6 +23,7 @@ ADR-0006 keyed hooks by internal event (`after-task.update.mjs`) and materialise
 8. **Failure policies, bounds, env allowlist, stdout purity, bypass audit unchanged**; the vocabulary is `before`/`after` in names, phases and codes. `console.log/info/warn/debug` is rerouted to child stderr (stdio preloads `hook-console-guard.mjs` via `node --import`, module/TS get the loader-top patch) — the stdout contract is unchanged, now enforced: chatter can never become an instruction, raw `process.stdout.write` pollution still fails the same way. The child env allowlist gains exactly one entry: `VIBEFLOW_HOOK_RUNTIME` (absolute path to `dist/hooks/hook-runtime.mjs`, injected by the runner — item 3 of the same ticket; still never a token).
 9. **Before is for writes:** `.before` is supported only for gateable tools; a `.before` file for a read/container tool is refused loudly, never silently ignored.
 10. Test hermeticity: `VIBEFLOW_HOOKS=0` (unchanged). Adding a 9th activity, replacing the registry with per-call logic, or re-introducing a `$HOME` defaults copy must revisit this ADR in the same commit.
+11. **The emitter also records what it narrated** (2026-11-22, ticket ecba6126): `emitAfterHook` appends the confirmed effect (`activity` + `HookConfirmedPayloads[activity]`) to the invocation scope BEFORE any early return — hooks disabled, reentrancy guard, no hook file, untrusted hook — and the CLI/MCP invocation boundary projects it into a local notification event. Hooks stay the only *narration* channel; this capture is read-only observation of the same confirmed payload, so a notification can never become a second, drifting description of a write. It is additive: no hook runs, no order changes, no new envelope field.
 
 ## What follows from it
 
@@ -36,6 +37,7 @@ Renaming a hook file away from `<tool>.<phase>`, gating a read, executing hooks 
 - Pins: `packages/cli/tests/unit/hooks/runner.test.ts`
 - Pins: `packages/cli/tests/unit/hooks/packaged-defaults.test.ts`
 - Pins: `packages/cli/tests/unit/hooks/emit.test.ts`
+- Pins: `packages/cli/tests/unit/notifications.test.ts`
 - Pins: `packages/cli/tests/unit/hooks/before-gate.test.ts`
 - Pins: `packages/cli/tests/unit/hooks/hook-runtime.test.ts`
 - Pins: `packages/cli/tests/integration/hooks-package.test.ts`

@@ -34,6 +34,7 @@ node with no action and `help` is commander-owned — neither is hookable.
 | `pull` | cli + mcp | ✓ | ✓ | pull |
 | `push` | cli | ✓ | ✓ | push |
 | `verify` | cli | ✓ | ✓ | verify |
+| `notifications` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |
 | `serve` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ at listening (`{url}`) | — |
 | `kanban` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ at listening (`{url}`) | — |
 | `mcp` | cli | ✗ `HOOK_NOT_GATEABLE` | ✗ `HOOK_NO_AFTER` (the client owns the lifetime) | — |
@@ -54,6 +55,7 @@ node with no action and `help` is commander-owned — neither is hookable.
 | `list_tasks` | mcp | ✗ `HOOK_NOT_GATEABLE` | ✓ (`{count}`) | — |
 | `get_task` | mcp | ✗ `HOOK_NOT_GATEABLE` | ✓ (task = the record) | — |
 | `get_file` | mcp | ✗ `HOOK_NOT_GATEABLE` | ✓ (task = the record) | — |
+| `get_notifications` | mcp | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |
 | `attach_file` | mcp | ✗ `HOOK_NOT_GATEABLE` | ✓ (task = the target) | — |
 | `get_project` | mcp | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |
 | `start_kanban` | mcp | ✗ `HOOK_NOT_GATEABLE` | ✓ (`{url}`) | — |

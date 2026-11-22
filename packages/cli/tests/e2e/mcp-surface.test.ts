@@ -39,6 +39,9 @@ const COMMANDS = [
   "login",
   "logout",
   "mcp",
+  // Local notification feed (ae96cee7): the CLI reads it with a timestamp
+  // token; the MCP surface exposes the same read as `get_notifications`.
+  "notifications",
   "openapi",
   // `pull` (ff85737, 2026-10-21) is a real subcommand — the G2 view
   // compares the commander tree against COMMANDS, so omitting it fails

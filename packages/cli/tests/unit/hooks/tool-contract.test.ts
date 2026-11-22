@@ -134,8 +134,8 @@ describe("tool registry vs the commander tree", () => {
   });
 });
 
-describe("tool registry vs the MCP manifest (13 tools)", () => {
-  it("the manifest is the source of truth: 13 tools", () => {
+describe("tool registry vs the MCP manifest (14 tools)", () => {
+  it("the manifest is the source of truth: 14 tools", () => {
     expect(manifest.map((t) => t.name).sort()).toEqual(
       [
         "add_comment",
@@ -145,6 +145,7 @@ describe("tool registry vs the MCP manifest (13 tools)", () => {
         "get_file",
         "get_integration_guide",
         "get_project",
+        "get_notifications",
         "get_task",
         "list_tasks",
         "pull",
@@ -174,7 +175,7 @@ describe("tool registry vs the MCP manifest (13 tools)", () => {
       expect(row?.before.status, name).toBe("supported");
       expect(row?.after.status, name).toBe("supported");
     }
-    const readTools = ["list_tasks", "get_task", "get_file", "attach_file", "get_project", "start_kanban", "get_integration_guide"];
+    const readTools = ["list_tasks", "get_task", "get_file", "get_notifications", "attach_file", "get_project", "start_kanban", "get_integration_guide"];
     for (const name of readTools) {
       const row = findHookTool(name, "mcp");
       expect(row?.before.status, name).toBe("unsupported");

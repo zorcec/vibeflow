@@ -289,6 +289,7 @@ vibeflow mcp --project /path/to/project
 | `add_comment` | Comment on a task |
 | `attach_file` | Attach a file (base64); a `.md` satisfies the research-report gate |
 | `get_file` | Download a file attached to a task (base64) |
+| `get_notifications` | List task notifications (create/update/claim/comment) newer than a timestamp, with a `nextTs` cursor |
 | `pull` | Pull the online board into the local task store (additive, never deletes) |
 | `verify_task` | Run visual verification for an annotated task |
 | `start_kanban` | Start the local Kanban board server and return its URLs |

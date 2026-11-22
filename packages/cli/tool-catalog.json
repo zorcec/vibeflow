@@ -122,6 +122,16 @@
     ]
   },
   {
+    "name": "get_notifications",
+    "title": "Get notifications",
+    "description": "List task notifications (create/update/claim/comment) newer than a timestamp. Returns a `nextTs` token to pass on the next call. `since` is INCLUSIVE, so the boundary event may repeat — dedupe on `id`. Events are deliberately minimal ({id, ts, type, taskId, actor, changed?, to?}) so you read the task itself with get_task instead of carrying a whole record. `target` picks the feed: `local` is the project's own log (always available), `online` is the board it is linked to. Read-only; changes nothing. Use it to poll or wait for work that landed while you were busy, not to read task content.",
+    "cliCommand": "notifications",
+    "cliFlags": [
+      "--since",
+      "--limit"
+    ]
+  },
+  {
     "name": "pull",
     "title": "Pull board",
     "description": "Pull the online board into the local task store: the inverse of a push. ADDITIVE and never destructive — tasks and files the board holds are added or merged field-by-field into `.vibeflow/`, local-only data is never dropped, and nothing is ever deleted. On a conflicting field the LOCAL value wins by default, except `status`, which follows the remote record (the board is truth for workflow state) unless preferLocal restores local-wins for it; pass preferRemote to let the remote value win on every conflicting field instead. A second pull of an unchanged board is a byte-no-op (unchanged tasks are not rewritten, identical files untouched). Pass dryRun to preview the pull without writing anything. Use it to bring a board's tasks and file bytes local after working in another checkout or on the web; use list_tasks to browse without writing, and push to send local work up.",

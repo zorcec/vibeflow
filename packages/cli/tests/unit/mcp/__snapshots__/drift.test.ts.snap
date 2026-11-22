@@ -8,6 +8,7 @@ exports[`MCP drift test > snapshot of tool names matches fixture 1`] = `
   "create_task",
   "get_file",
   "get_integration_guide",
+  "get_notifications",
   "get_project",
   "get_task",
   "list_tasks",

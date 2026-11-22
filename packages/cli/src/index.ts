@@ -1,4 +1,5 @@
 import { Command, Option } from "commander";
+import { spawn } from "node:child_process";
 import { serve } from "./server/server.js";
 import {
   buildIntegrationGuide,
@@ -27,7 +28,13 @@ import {
   appendNotification,
   notificationsFromConfirmed,
   notificationsEnabled,
+  type NotificationEvent,
 } from "./core/notifications.js";
+import {
+  NOTIFICATIONS_POLL_INTERVAL_MS,
+  fetchNotifications,
+  type NotificationTarget,
+} from "./core/notifications-fetch.js";
 import {
   attentionClaimAlert,
   ATTENTION_NOTICE_CODE,
@@ -7867,6 +7874,284 @@ program
       });
       await flushTelemetry();
       return { projectDir: resolve("."), mode: "local" as const, json: opts.json };
+      },
+    ),
+  );
+
+/**
+ * The `--follow` loop (ticket ae96cee7): re-read the feed every
+ * {@link NOTIFICATIONS_POLL_INTERVAL_MS} from the last `nextTs` and emit what is
+ * new until Ctrl-C.
+ *
+ * `since` is INCLUSIVE, so every poll legitimately repeats the boundary event;
+ * emitted ids are remembered and skipped, which is the whole at-least-once
+ * contract in one Set. `--exec` starts ONE child and keeps it alive — one
+ * process per event would lose all state between events — and writes each
+ * event's JSON to its stdin as one line. SIGINT ends the child's stdin and
+ * exits 0 with no stack trace.
+ *
+ * The refusals are returned, not thrown: the caller owns the envelope and the
+ * exit code, exactly like the one-shot read.
+ */
+async function followNotifications(
+  projectDir: string,
+  opts: {
+    target?: NotificationTarget;
+    since?: string;
+    limit?: number;
+    json?: boolean;
+    exec?: string;
+  },
+): Promise<
+  { ok: true; target: NotificationTarget } | { ok: false; code: string; message: string }
+> {
+  const child =
+    opts.exec === undefined
+      ? null
+      : spawn(opts.exec, { shell: true, stdio: ["pipe", "inherit", "inherit"] });
+  const stop = (): void => {
+    try {
+      child?.stdin?.end();
+    } catch {
+      /* the child is already gone — nothing to flush into */
+    }
+    process.exit(0);
+  };
+  if (child) {
+    child.on("error", (err: Error) => {
+      console.error(chalk.red(`✗ --exec failed to start: ${err.message}`));
+      process.exit(ExitCode.GENERAL);
+    });
+    process.once("SIGINT", stop);
+  } else {
+    process.once("SIGINT", stop);
+  }
+
+  const emitted = new Set<unknown>();
+  let cursor = opts.since;
+  let target: NotificationTarget | undefined = opts.target;
+  for (;;) {
+    const result = await fetchNotifications(projectDir, {
+      ...(target !== undefined ? { target } : {}),
+      ...(cursor !== undefined ? { since: cursor } : {}),
+      ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+    });
+    if (!result.ok) {
+      try {
+        child?.stdin?.end();
+      } catch {
+        /* already closed */
+      }
+      return { ok: false, code: result.code, message: result.message };
+    }
+    target = result.target;
+    for (const event of result.notifications) {
+      const id = (event as { id?: unknown }).id;
+      const key = id ?? JSON.stringify(event);
+      if (emitted.has(key)) continue;
+      emitted.add(key);
+      const line = JSON.stringify(event);
+      // The child always receives the raw event JSON; the terminal renderer
+      // follows --json (NDJSON) or the human line.
+      child?.stdin?.write(line + "\n");
+      if (opts.json === true) process.stdout.write(line + "\n");
+      else if (child === null) console.log(renderNotificationLine(event));
+    }
+    if (result.gap) {
+      console.error(
+        chalk.yellow(
+          "! gap: events were evicted before --since — some notifications were never seen",
+        ),
+      );
+    }
+    cursor = result.nextTs ?? cursor;
+    await new Promise((r) => setTimeout(r, NOTIFICATIONS_POLL_INTERVAL_MS));
+  }
+}
+
+/**
+ * One notification event as a human line: `HH:MM:SS  <type>  <taskId>  <changed>`.
+ * The time is the event's own ISO timestamp slice, so the line never depends on
+ * the reader's locale or clock.
+ */
+function renderNotificationLine(event: unknown): string {
+  const e = event as Partial<NotificationEvent>;
+  const time = typeof e.ts === "string" ? e.ts.slice(11, 19) : "";
+  const changed = Array.isArray(e.changed) ? e.changed.join(",") : "";
+  return `${time}  ${e.type ?? ""}  ${e.taskId ?? ""}  ${changed}`.trimEnd();
+}
+
+/** A `--follow` / `--exec` refusal: usage envelope, exit 2, nothing started. */
+function refuseNotificationsUsage(
+  message: string,
+  suggestion: string,
+  json: boolean | undefined,
+): void {
+  outputEnvelope({ ok: false, code: "E_USAGE", message, suggestion, json });
+  process.exitCode = ExitCode.USAGE;
+}
+
+program
+  .command("notifications")
+  .description(
+    "List task notifications (create/update/claim/comment/verify) newer than a timestamp — the agent-facing feed of what changed",
+  )
+  .option(
+    "--since <iso>",
+    "Only events at or after this ISO timestamp — pass the previous answer's nextTs (inclusive: the boundary event may repeat, so dedupe on id)",
+  )
+  .option(
+    "--limit <n>",
+    "How many events to return — the NEWEST n win (default 50, max 200)",
+  )
+  .option("--json", "Emit the feed as JSON on stdout (one object per line with --follow)")
+  .option(
+    "--local",
+    "Read .vibeflow/notifications.jsonl directly (works whether or not a board is running)",
+  )
+  .option(
+    "--online",
+    "Read the feed of the board this project is linked to",
+  )
+  .option(
+    "--follow",
+    `Poll every ${NOTIFICATIONS_POLL_INTERVAL_MS / 1000} s and print new events until interrupted (Ctrl-C exits 0)`,
+  )
+  .option(
+    "--exec <cmd>",
+    "With --follow: start <cmd> once and write each new event's JSON to its stdin",
+  )
+  .action(
+    toolAction(
+      "notifications",
+      async (
+        _handle,
+        opts: {
+          since?: string;
+          limit?: string;
+          json?: boolean;
+          local?: boolean;
+          online?: boolean;
+          follow?: boolean;
+          exec?: string;
+        },
+      ) => {
+        capture("command_run", { surface: "cli", command: "notifications" });
+        await flushTelemetry();
+        const projectDir = resolve(".");
+        if (opts.exec !== undefined && opts.follow !== true) {
+          refuseNotificationsUsage(
+            "--exec needs --follow.",
+            "--exec pipes each new event to a child that stays alive, so it only makes sense while following: vibeflow notifications --follow --exec 'jq .type'",
+            opts.json,
+          );
+          return;
+        }
+        if (opts.local === true && opts.online === true) {
+          refuseNotificationsUsage(
+            "Pass either --local or --online, not both.",
+            "Omit both to let the project's own connection decide: vibeflow notifications --json",
+            opts.json,
+          );
+          return;
+        }
+        const limit = opts.limit === undefined ? undefined : Number(opts.limit);
+        if (
+          limit !== undefined &&
+          (!Number.isInteger(limit) || limit < 1)
+        ) {
+          refuseNotificationsUsage(
+            `Invalid --limit: "${opts.limit}"`,
+            "--limit is a positive whole number (example: vibeflow notifications --limit 20)",
+            opts.json,
+          );
+          return;
+        }
+        const target: NotificationTarget | undefined =
+          opts.local === true
+            ? "local"
+            : opts.online === true
+              ? "online"
+              : undefined;
+        const modeOf = (t: NotificationTarget) =>
+          t === "online" ? ("saas" as const) : ("local" as const);
+
+        if (opts.follow === true) {
+          const followed = await followNotifications(projectDir, {
+            ...(target !== undefined ? { target } : {}),
+            ...(opts.since !== undefined ? { since: opts.since } : {}),
+            ...(limit !== undefined ? { limit } : {}),
+            ...(opts.json === true ? { json: true } : {}),
+            ...(opts.exec !== undefined ? { exec: opts.exec } : {}),
+          });
+          if (!followed.ok) {
+            outputEnvelope({
+              ok: false,
+              code: followed.code,
+              message: followed.message,
+              json: opts.json,
+            });
+            process.exitCode =
+              followed.code === "INVALID_SINCE"
+                ? ExitCode.USAGE
+                : ExitCode.GENERAL;
+            return;
+          }
+          return { projectDir, mode: modeOf(followed.target), json: opts.json };
+        }
+
+        const result = await fetchNotifications(projectDir, {
+          ...(target !== undefined ? { target } : {}),
+          ...(opts.since !== undefined ? { since: opts.since } : {}),
+          ...(limit !== undefined ? { limit } : {}),
+        });
+        if (!result.ok) {
+          outputEnvelope({
+            ok: false,
+            code: result.code,
+            message: result.message,
+            json: opts.json,
+          });
+          process.exitCode =
+            result.code === "INVALID_SINCE" ? ExitCode.USAGE : ExitCode.GENERAL;
+          return;
+        }
+        if (opts.json === true) {
+          // Exactly the fetch result on stdout — hints/diagnostics stay on
+          // stderr (see the gap notice below).
+          outputEnvelope({
+            ok: true,
+            json: true,
+            payload: {
+              target: result.target,
+              notifications: result.notifications,
+              nextTs: result.nextTs,
+              earliestTs: result.earliestTs,
+              gap: result.gap,
+              truncated: result.truncated,
+              count: result.count,
+            },
+          });
+        } else if (result.count === 0) {
+          console.log("no notifications");
+        } else {
+          for (const event of result.notifications) {
+            console.log(renderNotificationLine(event));
+          }
+        }
+        // The cursor is printed in human mode too: it is what the agent passes
+        // back as --since, and reopening the feed with it is the whole contract.
+        if (opts.json !== true) {
+          console.log(`nextTs: ${result.nextTs ?? "null"}`);
+        }
+        if (result.gap) {
+          console.error(
+            chalk.yellow(
+              "! gap: events were evicted before --since — re-read the newest events instead of paging",
+            ),
+          );
+        }
+        return { projectDir, mode: modeOf(result.target), json: opts.json };
       },
     ),
   );

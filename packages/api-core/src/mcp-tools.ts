@@ -152,6 +152,35 @@ export type GetTaskInputType = z.infer<typeof GetTaskInput>;
 export const GetProjectInput = z.object({});
 export type GetProjectInputType = z.infer<typeof GetProjectInput>;
 
+// CLI-only tool (see CLI_ONLY_MCP_TOOLS): the feed lives in the caller's
+// project directory, so only the local surface can answer it. The schema
+// lives here anyway because this module is the one place the CLI manifest
+// and the operation-registry generator both read input shapes from.
+export const GetNotificationsInput = z.object({
+  since: z
+    .string()
+    .optional()
+    .describe(
+      "Inclusive ISO-8601 timestamp — pass the previous answer's `nextTs` to read only what is new. Omit for the newest events.",
+    ),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe(
+      "Page size (1–200, default 50). The NEWEST `limit` events win; `truncated` says more matched.",
+    ),
+  target: z
+    .enum(["local", "online"])
+    .optional()
+    .describe(
+      "Which feed to read: `local` is `.vibeflow/notifications.jsonl` (always available), `online` is the linked board. Omit to let the project's own connection decide.",
+    ),
+});
+export type GetNotificationsInputType = z.infer<typeof GetNotificationsInput>;
+
 export const CreateTaskInput = z.object({
   title: z.string().min(1).describe("Task title — the only required field."),
   description: z.string().optional().describe(
@@ -882,7 +911,9 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
  *
  * A hosted MCP server has no project directory. `pull` writes records into the
  * caller's local store, so a cloud runner has nothing to write to — it is not a
- * missing feature, it is a surface with no filesystem.
+ * missing feature, it is a surface with no filesystem. `get_notifications`
+ * reads the caller's own notification feed (its `.vibeflow/notifications.jsonl`
+ * or the board that project is linked to), so it is the same shape of absence.
  *
  * The exclusion is DECLARED rather than implied by the hosted implementation,
  * because the two surfaces must not drift silently: without this export the
@@ -892,7 +923,7 @@ export const MCP_TOOL_DECLARATIONS: McpToolDeclaration[] = [
  * test can assert a TOTAL PARTITION — every declared tool is either hosted or
  * CLI-only, never both, never neither — and adding a tool forces a decision.
  */
-export const CLI_ONLY_MCP_TOOLS = ["pull"] as const;
+export const CLI_ONLY_MCP_TOOLS = ["pull", "get_notifications"] as const;
 export type CliOnlyMcpTool = (typeof CLI_ONLY_MCP_TOOLS)[number];
 
 /** The declarations a HOSTED server must register: everything else. */

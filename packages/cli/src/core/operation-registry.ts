@@ -220,6 +220,17 @@ export const OPERATION_REGISTRY: Record<OperationId, OperationRecord> = {
     reason:
       "Full-id-or-prefix resolution and projection(+counts) shared; relations derived identically.",
   },
+  getNotifications: {
+    id: "getNotifications",
+    mode: "both",
+    requirement: "none",
+    mapping: "one-to-one",
+    cli: ["notifications", "notifications --since", "notifications --limit"],
+    mcpTools: ["get_notifications"],
+    operationFn: "getNotifications",
+    reason:
+      "Same feed, same `nextTs` cursor, same two backends on both surfaces: the CLI renders lines (or --json/--follow), the tool returns the payload. Which backend (local file vs linked board) is a caller choice, never a surface difference.",
+  },
   inspectVerificationEvidence: {
     id: "inspectVerificationEvidence",
     mode: "local",
@@ -479,6 +490,8 @@ export const REGISTRY_CLI_FLAGS: Record<string, OperationId> = {
   "telemetry --enable": "manageTelemetry",
   "telemetry --status": "manageTelemetry",
   "mcp --project": "startMcpTransport",
+  "notifications --limit": "getNotifications",
+  "notifications --since": "getNotifications",
   "serve --dev": "startServer",
   "serve --host": "startServer",
   "serve --no-open": "startServer",

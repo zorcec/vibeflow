@@ -18,6 +18,7 @@ import {
   AddCommentInput,
   AttachFileInput,
   GetFileInput,
+  GetNotificationsInput,
   VerifyTaskInput,
   PullInput,
   StartKanbanInput,
@@ -31,6 +32,7 @@ import {
   addComment,
   attachFile,
   getFile,
+  getNotifications,
   verifyTaskOp,
   pullFromBoard,
   startKanban,
@@ -214,6 +216,18 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
       "local pre-hook bypass for the gated pull; skips the gate loudly, never silently — see the Stage 2 entry above",
     "verify --no-verify":
       "local pre-hook bypass for the gated verify run; skips the gate loudly, never silently — see the Stage 2 entry above",
+    // `notifications` renderers. The feed itself is get_notifications; these
+    // spell HOW a terminal reads it, not WHAT is read.
+    "notifications --json":
+      "output-format flag for the human-readable notification lines; get_notifications already answers JSON on the wire, so no input field owns it",
+    "notifications --local":
+      "backend selector spelled as a flag; get_notifications carries the same choice as its `target` field (\"local\"), so no input field is named --local — see mcpOnlyFields.get_notifications.target",
+    "notifications --online":
+      "backend selector spelled as a flag; get_notifications carries the same choice as its `target` field (\"online\"), so no input field is named --online — see mcpOnlyFields.get_notifications.target",
+    "notifications --follow":
+      "CLI-only polling loop: it re-reads every 2 s and never returns, which is a terminal workflow an MCP client performs by calling get_notifications again with `nextTs` — a long-lived stdio tool call would block the session",
+    "notifications --exec":
+      "CLI-only child-process pipe: `--exec <cmd>` starts one long-running child and writes each new event to its stdin, a shell composition no MCP client can express (it has no child process to pipe into)",
   },
 };
 
@@ -315,6 +329,8 @@ export const mcpOnlyFields: Record<string, string> = {
     "target filename to download. The CLI takes it as the second half of `--get-file <id> <name>` and writes the bytes to disk; get_file returns the bytes as contentB64, because a client may not share a filesystem.",
   "get_file.fileId":
     "online file id from the board's file list (remote mode only — the local store addresses files by name, and the CLI names them by name too). No CLI flag spells it because the CLI never addresses a download by file id.",
+  "get_notifications.target":
+    "which feed to read. The CLI spells the same choice as two mutually exclusive flags (`--local` / `--online`, both classified in intentionallyNotExposed.flags), so the field is MCP-only in NAME and SHAPE (one enum vs two switches), not in capability. Omit it on either surface and the project's own connection decides.",
   "verify_task.timeoutMs":
     "per-call verification timeout, and the CLI equivalent DOES exist: `vibeflow verify <task-id> --timeout <ms>` bounds one run with the same unit (milliseconds), the same 1000-300000 range and the same 60000 default, through the same AbortSignal the engine already honours. The field is MCP-only in NAME and SHAPE (a camelCase input field with a default vs a `--timeout` flag that also defaults), not in capability. Kept because the dashed form G5 looks for is `--timeout-ms`, which is not a flag anyone types.",
 };
@@ -562,6 +578,33 @@ export const manifest: ToolManifest[] = [
     schema: GetFileInput.strict(),
     run: (ctx, input) =>
       getFile(ctx, input as z.infer<typeof GetFileInput>),
+  },
+  {
+    name: "get_notifications",
+    title: "Get notifications",
+    // CLI-only tool (api-core's CLI_ONLY_MCP_TOOLS): the feed is the caller's
+    // own — `.vibeflow/notifications.jsonl` or the board that project is
+    // linked to — so a hosted server has nothing to read.
+    description:
+      "List task notifications (create/update/claim/comment) newer than a timestamp. Returns a `nextTs` token to pass on the next call. `since` is INCLUSIVE, so the boundary event may repeat — dedupe on `id`. Events are deliberately minimal ({id, ts, type, taskId, actor, changed?, to?}) so you read the task itself with get_task instead of carrying a whole record. `target` picks the feed: `local` is the project's own log (always available), `online` is the board it is linked to. Read-only; changes nothing. Use it to poll or wait for work that landed while you were busy, not to read task content.",
+    cliRef: {
+      command: "notifications",
+      // --follow/--exec are CLI-only streaming flags (classified in
+      // intentionallyNotExposed.flags); `target` is the schema spelling of
+      // --local/--online (mcpOnlyFields).
+      flags: ["--since", "--limit"],
+    },
+    category: "task-read",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    input: GetNotificationsInput.shape,
+    schema: GetNotificationsInput.strict(),
+    run: (ctx, input) =>
+      getNotifications(ctx, input as z.infer<typeof GetNotificationsInput>),
   },
   // REMOVED (ticket 53b622fc): export_prompt was deleted here — the
   // whole-board prompt exporter. Its single-task read is covered by

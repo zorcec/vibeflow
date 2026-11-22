@@ -21,26 +21,28 @@ describe("MCP manifest single source", () => {
     expect(new Set([...hosted, ...cliOnly]).size).toBe(all.length);
   });
 
-  it("`pull` is declared CLI-only, and it exists", () => {
+  it("`pull` and `get_notifications` are declared CLI-only, and they exist", () => {
     // A hosted MCP server has no project directory to pull into. The exclusion
     // is declared in api-core so the hosted surface cannot answer a different
     // set of names without a decision.
-    expect([...CLI_ONLY_MCP_TOOLS]).toEqual(["pull"]);
+    expect([...CLI_ONLY_MCP_TOOLS]).toEqual(["pull", "get_notifications"]);
     expect(manifest.map((tool) => tool.name)).toContain("pull");
     expect(
       HOSTED_MCP_TOOL_DECLARATIONS.map((tool) => tool.name),
     ).not.toContain("pull");
   });
 
-  it("has exactly 13 tools", () => {
+  it("has exactly 14 tools", () => {
     // Ticket 53b622fc: export_prompt was REMOVED (breaking) — 12 became 11.
     // Then `pull` was added (board -> local additive sync), back to 12. Then
     // `get_file` was added (ticket q2xx837y1ji49vwgq6504rt1: download an
-    // attachment's bytes — the read mirror of attach_file), now 13. The
+    // attachment's bytes — the read mirror of attach_file), now 13.
+    // `get_notifications` (ticket ae96cee7: the task-mutation feed, CLI-only)
+    // makes 14. The
     // count is pinned deliberately: a tool appearing or vanishing without a
     // decision should break this file, and drift.test.ts names every tool so
     // the two cannot disagree.
-    expect(manifest.length).toBe(13);
+    expect(manifest.length).toBe(14);
   });
 
   it("export_prompt is absent (removed, ticket 53b622fc)", () => {
