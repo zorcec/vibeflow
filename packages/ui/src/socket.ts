@@ -92,13 +92,12 @@ export interface CollabSocket {
   onEvent(handler: (event: CollabEvent) => void): () => void;
   onStatus(handler: (connected: boolean) => void): () => void;
   /**
-   * Fires once per TRUE reconnect: a false → true transition after the
-   * client has connected at least once. Never fires on the initial
-   * connect (the first query fetch already covers that), and never on a
+   * Fires once per successful connect — the FIRST one included. Never on a
    * timer — there is deliberately no polling in this module. Consumers
-   * (e.g. the kanban board) use it for ONE bounded resync per reconnect,
-   * so a broadcast lost while the socket was down cannot leave the
-   * session silently stale.
+   * (e.g. the kanban board) use it for ONE bounded resync per connect, so a
+   * broadcast missed while the socket was down cannot leave the session
+   * silently stale; that includes a board opened DURING the downtime, whose
+   * join baseline lands past the events it missed (bug ed49a72a).
    */
   onReconnect(handler: () => void): () => void;
   /**
@@ -145,20 +144,22 @@ export function createSocket(options: CreateSocketOptions): CollabSocket {
   // covers whatever was missed during the downtime itself.
   let lastRev: number | null = null;
   let connected = false;
-  // True once the first connect completes. Distinguishes the initial
-  // connect (queries fetch on mount — no resync needed) from a reconnect
-  // (the stream may have dropped events — exactly one resync per return).
-  let everConnected = false;
   let socket: RealtimeSocket | null = null;
 
   const setConnected = (next: boolean): void => {
+    // One resync per connect: an unchanged state returns before firing, so
+    // duplicate `connect` events cannot stack extra invalidates.
     if (connected === next) return;
     connected = next;
     if (next) {
-      if (everConnected) {
-        for (const handler of reconnectHandlers) handler();
-      }
-      everConnected = true;
+      // Fires on the FIRST connect too (bug ed49a72a). The mount fetch races
+      // this join, and a board opened while the ws service was down joins
+      // cleanly and adopts a baseline PAST the events it missed — the
+      // pre-outage window would stay invisible until a manual refresh. A
+      // first-connect resync is the only thing that closes that window;
+      // react-query dedupes the extra invalidate against the mount fetch, so
+      // the common case costs no extra request.
+      for (const handler of reconnectHandlers) handler();
     }
     for (const handler of statusHandlers) handler(next);
   };
@@ -254,7 +255,7 @@ export interface UseCollabResult {
   connected: boolean;
   sendEvent: (event: CollabEvent) => void;
   onEvent: (handler: (event: CollabEvent) => void) => () => void;
-  /** One bounded resync trigger per true reconnect — see `CollabSocket`. */
+  /** One bounded resync trigger per connect — see `CollabSocket`. */
   onReconnect: (handler: () => void) => () => void;
   /** One bounded resync trigger per detected revision gap — see `CollabSocket`. */
   onGap: (handler: (gap: RevisionGap) => void) => () => void;

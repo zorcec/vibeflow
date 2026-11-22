@@ -12,9 +12,10 @@ import {
 
 /**
  * Fake transport standing in for Socket.IO: records the wire messages and lets
- * the test drive `connect` / ack / server events.
+ * the test drive `connect` / ack / server events. `joinAccepted` may be a
+ * function so a reconnect can be refused after a first accepted join.
  */
-function createFakeTransport(joinAccepted = true): {
+function createFakeTransport(joinAccepted: boolean | (() => boolean) = true): {
   socket: RealtimeSocket;
   emitted: Array<{ event: string; args: unknown[] }>;
   options: TransportOptions[];
@@ -43,7 +44,9 @@ function createFakeTransport(joinAccepted = true): {
       if (event === "join-workspace") {
         const ack = args[1];
         if (typeof ack === "function") {
-          (ack as (joined: boolean) => void)(joinAccepted);
+          const accepted =
+            typeof joinAccepted === "function" ? joinAccepted() : joinAccepted;
+          (ack as (joined: boolean) => void)(accepted);
         }
       }
     },
@@ -128,9 +131,9 @@ describe("createSocket", () => {
     expect(client.connected).toBe(false);
   });
 
-  describe("onReconnect (ticket cb3d0506: one bounded resync per reconnect)", () => {
-    function setup() {
-      const transport = createFakeTransport();
+  describe("onReconnect (tickets cb3d0506 + ed49a72a: one bounded resync per connect)", () => {
+    function setup(joinAccepted: boolean | (() => boolean) = true) {
+      const transport = createFakeTransport(joinAccepted);
       const client = createSocket({
         workspaceId: "board-1",
         url: "http://rt.test",
@@ -142,21 +145,74 @@ describe("createSocket", () => {
       return { transport, client, reconnects };
     }
 
-    it("does NOT fire on the initial connect (first fetch already covers it)", () => {
+    it("fires exactly once on the FIRST connect (bug ed49a72a: the board can have loaded during an outage)", () => {
       const { transport, reconnects } = setup();
       transport.connect();
-      expect(reconnects).toHaveLength(0);
+      expect(reconnects).toHaveLength(1);
     });
 
-    it("fires exactly once per disconnect → connect cycle (bounded, no polling)", () => {
+    it("fires once per connect — not cumulative, no polling", () => {
       const { transport, reconnects } = setup();
-      transport.connect();
-      transport.disconnect();
       transport.connect();
       expect(reconnects).toHaveLength(1);
       transport.disconnect();
       transport.connect();
       expect(reconnects).toHaveLength(2);
+      transport.disconnect();
+      transport.connect();
+      expect(reconnects).toHaveLength(3);
+    });
+
+    it("a refused join resolves to disconnected, and only a fresh connect resyncs again", () => {
+      let joined = true;
+      const { transport, client, reconnects } = setup(() => joined);
+
+      transport.connect();
+      expect(client.connected).toBe(true);
+      expect(reconnects).toHaveLength(1);
+
+      // The drop itself never resyncs — only a connect does.
+      joined = false;
+      transport.disconnect();
+      expect(client.connected).toBe(false);
+      expect(reconnects).toHaveLength(1);
+
+      // Refused join: the connect fired the handler, the ack rolls the state
+      // back, and that rollback adds no resync of its own.
+      transport.connect();
+      expect(client.connected).toBe(false);
+      expect(reconnects).toHaveLength(2);
+
+      // A real reconnect is the next thing that fires it again.
+      joined = true;
+      transport.connect();
+      expect(client.connected).toBe(true);
+      expect(reconnects).toHaveLength(3);
+    });
+
+    it("fires nothing while disabled or without a workspaceId (unchanged no-transport path)", () => {
+      for (const options of [
+        { workspaceId: "board-1", enabled: false },
+        { workspaceId: "" },
+      ]) {
+        const transport = createFakeTransport();
+        let transportsCreated = 0;
+        const client = createSocket({
+          ...options,
+          url: "http://rt.test",
+          createTransport: () => {
+            transportsCreated += 1;
+            return transport.socket;
+          },
+        });
+        const reconnects: number[] = [];
+        client.onReconnect(() => reconnects.push(1));
+
+        // No transport exists, so no connect can ever drive a resync.
+        expect(transportsCreated).toBe(0);
+        expect(client.connected).toBe(false);
+        expect(reconnects).toHaveLength(0);
+      }
     });
 
     it("does not refire while staying connected (duplicate connect is a no-op)", () => {
@@ -165,18 +221,18 @@ describe("createSocket", () => {
       transport.disconnect();
       transport.connect();
       transport.connect();
-      expect(reconnects).toHaveLength(1);
+      expect(reconnects).toHaveLength(2);
     });
 
     it("unsubscribes cleanly", () => {
       const { transport, client, reconnects } = setup();
+      transport.connect();
       const extra: number[] = [];
       const unsubscribe = client.onReconnect(() => extra.push(1));
-      transport.connect();
       transport.disconnect();
       unsubscribe();
       transport.connect();
-      expect(reconnects).toHaveLength(1);
+      expect(reconnects).toHaveLength(2);
       expect(extra).toHaveLength(0);
     });
   });
