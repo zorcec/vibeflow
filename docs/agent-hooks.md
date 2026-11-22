@@ -15,7 +15,7 @@ command (`packages/cli/src/index.ts`), and the MCP bypass arrives as
 Hosted clients are out of scope: a hook is a local child process and there
 is no channel that could run one remotely.
 
-## Tool keys (27, registry-owned)
+## Tool keys (28, registry-owned)
 
 A hook file is named after its TOOL, not an internal event (`HOOK_TOOLS` in
 `tools.ts` — the one table discovery, the invocation boundary, the contract
@@ -39,6 +39,7 @@ node with no action and `help` is commander-owned — neither is hookable.
 | `kanban` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ at listening (`{url}`) | — |
 | `mcp` | cli | ✗ `HOOK_NOT_GATEABLE` | ✗ `HOOK_NO_AFTER` (the client owns the lifetime) | — |
 | `changelog` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |
+| `setup` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |
 | `openapi` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |
 | `telemetry` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |
 | `auth` | cli | ✗ `HOOK_NOT_GATEABLE` | ✓ | — |

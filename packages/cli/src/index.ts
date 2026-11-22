@@ -126,9 +126,12 @@ import { toLocalTask } from "./core/remote-task-store.js";
 import { readProjectPointer } from "./auth/project-pointer.js";
 import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
+import { homedir } from "node:os";
 import chalk from "chalk";
 import { capture, flushTelemetry } from "./telemetry.js";
 import { ExitCode } from "./core/exit-codes.js";
+import { CLI_VERSION } from "./version.js";
+import { findTarget, getTargets, plannedMessage } from "./core/setup/targets.js";
 
 // Injected at build time by tsup; undefined in raw TypeScript runs.
 declare const __VIBEFLOW_CLI_VERSION__: string | undefined;
@@ -8152,6 +8155,248 @@ program
           );
         }
         return { projectDir, mode: modeOf(result.target), json: opts.json };
+      },
+    ),
+  );
+
+/**
+ * `vibeflow setup` usage refusal: stdout stays clean for machines (the
+ * `{ok:false,error:{…}}` envelope goes to stderr) and the exit code is USAGE,
+ * exactly like the other pre-flight refusals in this file.
+ */
+function refuseSetupUsage(
+  message: string,
+  suggestion: string,
+  json: boolean | undefined,
+): void {
+  outputEnvelope({ ok: false, code: "E_USAGE", message, suggestion, json });
+  process.exitCode = ExitCode.USAGE;
+}
+
+/**
+ * Agent integration setup (ticket 6b437690, parent 4e4feca1). Every fact about
+ * a target — where it installs, how it is detected, whether it is stale — comes
+ * from `core/setup/targets.ts`; this renderer only picks the surface.
+ *
+ * `--check` is a QUERY, not a refusal: its answer rides the same document with
+ * `ok` mirroring the exit code (1 = not installed or drifted), so a script can
+ * read the verdict and the evidence from one JSON object on stdout.
+ */
+program
+  .command("setup")
+  .description(
+    "Install this CLI's integration for an agent (pi is ready; claude and codex are planned)",
+  )
+  .argument("[target]", "Agent to set up: pi | claude | codex (omit to list them)")
+  .option(
+    "--project",
+    "Install into this project's .pi/extensions instead of the global home directory",
+  )
+  .option("--force", "Overwrite an existing extension file")
+  .option(
+    "--check",
+    "Report whether the installed integration matches this CLI version (exit 1 when it does not)",
+  )
+  .option("--dry-run", "Report what would be written and write nothing")
+  .option("--json", "Emit the result as JSON on stdout")
+  .action(
+    toolAction(
+      "setup",
+      async (
+        handle,
+        targetId: string | undefined,
+        opts: {
+          project?: boolean;
+          force?: boolean;
+          check?: boolean;
+          dryRun?: boolean;
+          json?: boolean;
+        },
+      ) => {
+        capture("command_run", { surface: "cli", command: "setup" });
+        await flushTelemetry();
+        const projectDir = resolve(".");
+        handle.target = { projectDir, mode: "local" };
+        const outcome = {
+          projectDir,
+          mode: "local" as const,
+          ...(opts.dryRun === true ? { dryRun: true } : {}),
+          json: opts.json,
+        };
+        const home = homedir();
+        const scope = {
+          home,
+          projectDir,
+          project: opts.project === true,
+        };
+        const targets = getTargets();
+
+        // Bare `setup`: the inventory. Nothing is written, so nothing is
+        // installed or refreshed by looking.
+        if (targetId === undefined) {
+          const rows = targets.map((target) => {
+            const detected = target.detect(home);
+            const state = target.status(scope);
+            return {
+              target: target.id,
+              title: target.title,
+              support: target.support,
+              detected,
+              installed: state.installed,
+              version: state.version ?? null,
+              drift: state.drift === true,
+              path: state.path ?? null,
+            };
+          });
+          if (opts.json === true) {
+            process.stdout.write(
+              JSON.stringify({ ok: true, targets: rows }, null, 2) + "\n",
+            );
+          } else {
+            console.log();
+            console.log(
+              chalk.bold(
+                `  ${"id".padEnd(8)}${"detected".padEnd(10)}${"installed".padEnd(11)}${"version".padEnd(10)}support`,
+              ),
+            );
+            for (const row of rows) {
+              const stale = row.drift ? " (drift)" : "";
+              console.log(
+                `  ${row.target.padEnd(8)}${(row.detected.present ? "yes" : "no").padEnd(10)}` +
+                  `${(row.installed ? "yes" : "no").padEnd(11)}` +
+                  `${(row.version ?? "-").padEnd(10)}${row.support}${chalk.yellow(stale)}`,
+              );
+            }
+            console.log();
+            console.log(
+              chalk.dim("  Install: ") +
+                chalk.cyan(`vibeflow setup pi`) +
+                chalk.dim(
+                  "   ·   scope: --project   ·   refresh: --force   ·   verify: --check",
+                ),
+            );
+            console.log();
+          }
+          return outcome;
+        }
+
+        const target = findTarget(targetId);
+        if (target === undefined) {
+          refuseSetupUsage(
+            `Unknown setup target: "${targetId}"`,
+            `Pick one of: ${targets.map((t) => t.id).join(", ")} — run \`vibeflow setup\` to list them`,
+            opts.json,
+          );
+          return outcome;
+        }
+        const detected = target.detect(home);
+
+        if (opts.check === true) {
+          if (target.support === "planned") {
+            const doc = {
+              ok: true,
+              target: target.id,
+              detected,
+              support: target.support,
+              installed: false,
+              version: null,
+              drift: false,
+              path: null,
+              actions: [] as string[],
+            };
+            if (opts.json === true) {
+              process.stdout.write(JSON.stringify(doc, null, 2) + "\n");
+            } else {
+              console.log(chalk.dim("●") + `  ${plannedMessage(target.title)}`);
+            }
+            return outcome;
+          }
+          const state = target.status(scope);
+          const upToDate = state.installed && state.drift !== true;
+          const doc = {
+            ok: upToDate,
+            target: target.id,
+            detected,
+            support: target.support,
+            installed: state.installed,
+            version: state.version ?? null,
+            drift: state.drift === true,
+            path: state.path ?? null,
+            actions: [] as string[],
+          };
+          if (opts.json === true) {
+            process.stdout.write(JSON.stringify(doc, null, 2) + "\n");
+          } else if (!state.installed) {
+            console.log(
+              chalk.red(`✗ ${target.title} extension is not installed`) +
+                chalk.dim(" — run ") +
+                chalk.cyan(`vibeflow setup ${target.id}`),
+            );
+          } else if (state.drift === true) {
+            console.log(
+              chalk.red(
+                `✗ ${target.title} extension is ${state.version ?? "unstamped"}, this CLI is ${CLI_VERSION}`,
+              ) +
+                chalk.dim(" — run ") +
+                chalk.cyan(`vibeflow setup ${target.id} --force`),
+            );
+          } else {
+            console.log(
+              chalk.green(`✓ ${target.title} extension ${state.version} is up to date`) +
+                chalk.dim(` (${state.path})`),
+            );
+          }
+          if (!upToDate) process.exitCode = ExitCode.GENERAL;
+          return outcome;
+        }
+
+        const result = target.install({
+          home,
+          projectDir,
+          project: scope.project,
+          force: opts.force === true,
+          dryRun: opts.dryRun === true,
+          version: CLI_VERSION,
+        });
+        // The document reports what is on disk NOW: a dry run installs
+        // nothing, so it can never claim the file is there.
+        const after = target.status(scope);
+        const actions =
+          result.wrote && result.path !== undefined
+            ? [`wrote ${result.path}`]
+            : opts.dryRun === true && result.path !== undefined
+              ? [`would write ${result.path}`]
+              : [];
+        const doc = {
+          ok: result.ok,
+          target: result.target,
+          detected,
+          support: target.support,
+          installed: after.installed,
+          version: after.version ?? null,
+          drift: after.drift === true,
+          path: result.path ?? after.path ?? null,
+          actions,
+          ...(result.wrote ? { restart: "run /reload in pi" } : {}),
+        };
+        if (opts.json === true) {
+          process.stdout.write(JSON.stringify(doc, null, 2) + "\n");
+        } else {
+          const icon = result.ok
+            ? result.wrote
+              ? chalk.green("✓")
+              : chalk.dim("●")
+            : chalk.red("✗");
+          console.log(`${icon}  ${result.message}`);
+          if (detected.present) {
+            console.log(chalk.dim(`  detected: ${detected.evidence}`));
+          }
+          if (doc.restart !== undefined) {
+            console.log(chalk.dim("restart: ") + "run /reload in pi");
+          }
+        }
+        if (!result.ok) process.exitCode = ExitCode.GENERAL;
+        return outcome;
       },
     ),
   );

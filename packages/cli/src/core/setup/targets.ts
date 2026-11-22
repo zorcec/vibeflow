@@ -1,0 +1,444 @@
+/**
+ * `vibeflow setup <agent>` — the ONE registry of agent integrations.
+ *
+ * Each target owns three answers: how to DETECT that the agent is in use, how
+ * to INSTALL the integration (or say honestly that there is none yet), and
+ * what is currently on disk (installed? stale?). The CLI command renders these
+ * answers; it never learns a path or a file name of its own, so adding an
+ * agent means adding one entry here and nothing else.
+ *
+ * `planned` targets never write. They answer `ok: true, wrote: false` with a
+ * message that points at the integration that works today for ANY agent: the
+ * `vibeflow notifications --follow --exec '<cmd>'` pipe (C2). A half-built
+ * installer that writes something only to look finished is worse than none.
+ *
+ * Decision: parent ticket 4e4feca1 (agent integration surface), sub-ticket
+ * C4 6b437690.
+ */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { CLI_VERSION } from "../../version.js";
+
+export interface SetupResult {
+  ok: boolean;
+  target: string;
+  path?: string;
+  wrote: boolean;
+  message: string;
+}
+
+export interface AgentTarget {
+  id: "pi" | "claude" | "codex";
+  title: string;
+  support: "ready" | "planned";
+  detect(home: string): { present: boolean; evidence: string };
+  install(o: {
+    home: string;
+    projectDir: string;
+    project: boolean;
+    force: boolean;
+    dryRun: boolean;
+    version: string;
+  }): SetupResult;
+  status(o: { home: string; projectDir: string; project: boolean }): {
+    installed: boolean;
+    version?: string;
+    drift?: boolean;
+    path?: string;
+  };
+}
+
+/** The pi extension file `vibeflow setup pi` owns — global and project scope. */
+export const PI_EXTENSION_FILE = "vibeflow-notifications.js";
+
+/** First line of every file this module writes: `// vibeflow-cli: <version>`. */
+const STAMP_PATTERN = /^\/\/ vibeflow-cli: (.+)$/;
+
+/**
+ * Where the pi extension lives for a scope: pi's documented auto-discovery
+ * locations (`~/.pi/agent/extensions/` global, `.pi/extensions/` project).
+ */
+export function piExtensionPath(o: {
+  home: string;
+  projectDir: string;
+  project: boolean;
+}): string {
+  return o.project
+    ? join(o.projectDir, ".pi", "extensions", PI_EXTENSION_FILE)
+    : join(o.home, ".pi", "agent", "extensions", PI_EXTENSION_FILE);
+}
+
+/**
+ * The installed version stamp, or undefined when the file is missing, has no
+ * stamp, or cannot be read. Never throws: a status probe must answer even when
+ * the file is unreadable (the caller reports that as drift, not as a crash).
+ */
+function readStampedVersion(path: string): string | undefined {
+  try {
+    const firstLine = readFileSync(path, "utf-8").split("\n", 1)[0] ?? "";
+    return STAMP_PATTERN.exec(firstLine.trim())?.[1]?.trim();
+  } catch {
+    return undefined;
+  }
+}
+
+/** The first set, non-blank env var with this prefix — proof an agent is running. */
+function firstEnvWithPrefix(prefix: string): string | undefined {
+  for (const key of Object.keys(process.env)) {
+    if (!key.startsWith(prefix)) continue;
+    const value = process.env[key];
+    if (value === undefined || value.trim() === "") continue;
+    return key;
+  }
+  return undefined;
+}
+
+/**
+ * Detection shared by every target: an agent-specific env var, or a config
+ * directory the agent creates for itself. The evidence string names exactly
+ * which one matched, so "not detected" is never a mystery.
+ */
+function detectAgent(o: {
+  envPrefix: string;
+  dirs: string[];
+}): { present: boolean; evidence: string } {
+  const key = firstEnvWithPrefix(o.envPrefix);
+  if (key !== undefined) return { present: true, evidence: `env ${key}` };
+  for (const dir of o.dirs) {
+    if (existsSync(dir)) return { present: true, evidence: `dir ${dir}` };
+  }
+  return {
+    present: false,
+    evidence: `no ${o.envPrefix}* env var and no ${o.dirs.join(" / ")}`,
+  };
+}
+
+/**
+ * The message every `planned` target returns. One spelling: whatever the agent
+ * is, the pipe that works today is the same CLI command.
+ */
+export function plannedMessage(title: string): string {
+  return (
+    `${title} is not supported yet (planned) — the generic pipe works today: ` +
+    "vibeflow notifications --follow --exec '<cmd>'"
+  );
+}
+
+const piTarget: AgentTarget = {
+  id: "pi",
+  title: "pi",
+  support: "ready",
+  detect(home) {
+    return detectAgent({
+      envPrefix: "PI_",
+      dirs: [join(home, ".pi", "agent")],
+    });
+  },
+  install(o) {
+    const path = piExtensionPath(o);
+    if (!o.force && existsSync(path)) {
+      const installed = readStampedVersion(path);
+      return {
+        ok: true,
+        target: "pi",
+        path,
+        wrote: false,
+        message:
+          `already installed${installed ? ` (${installed})` : ""} at ${path} — ` +
+          "pass --force to overwrite",
+      };
+    }
+    if (o.dryRun) {
+      return {
+        ok: true,
+        target: "pi",
+        path,
+        wrote: false,
+        message: `dry run: would write ${path}`,
+      };
+    }
+    try {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, renderPiExtension(o.version), "utf-8");
+    } catch (error) {
+      return {
+        ok: false,
+        target: "pi",
+        path,
+        wrote: false,
+        message: `could not write ${path}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
+    return {
+      ok: true,
+      target: "pi",
+      path,
+      wrote: true,
+      message: `installed pi extension ${o.version} at ${path}`,
+    };
+  },
+  status(o) {
+    const path = piExtensionPath(o);
+    if (!existsSync(path)) return { installed: false, path };
+    const installed = readStampedVersion(path);
+    return {
+      installed: true,
+      ...(installed !== undefined ? { version: installed } : {}),
+      // No readable stamp is drift: the file cannot prove it matches this CLI.
+      drift: installed !== CLI_VERSION,
+      path,
+    };
+  },
+};
+
+const claudeTarget: AgentTarget = {
+  id: "claude",
+  title: "claude",
+  support: "planned",
+  detect(home) {
+    return detectAgent({
+      envPrefix: "CLAUDE_",
+      dirs: [join(home, ".claude")],
+    });
+  },
+  install() {
+    return {
+      ok: true,
+      target: "claude",
+      wrote: false,
+      message: plannedMessage("claude"),
+    };
+  },
+  status() {
+    return { installed: false };
+  },
+};
+
+const codexTarget: AgentTarget = {
+  id: "codex",
+  title: "codex",
+  support: "planned",
+  detect(home) {
+    return detectAgent({ envPrefix: "CODEX_", dirs: [join(home, ".codex")] });
+  },
+  install() {
+    return {
+      ok: true,
+      target: "codex",
+      wrote: false,
+      message: plannedMessage("codex"),
+    };
+  },
+  status() {
+    return { installed: false };
+  },
+};
+
+/** Every target, in the order `vibeflow setup` lists them. */
+export function getTargets(): AgentTarget[] {
+  return [piTarget, claudeTarget, codexTarget];
+}
+
+/** One target by id; undefined for an unknown id (the command reports usage). */
+export function findTarget(id: string): AgentTarget | undefined {
+  return getTargets().find((t) => t.id === id);
+}
+
+/**
+ * The CLI entry embedded in the extension: the script this process is running
+ * (`vibeflow` from an install, `dist/index.js` from a checkout) when it is a
+ * real file. Null tells the extension to resolve `vibeflow` on PATH instead.
+ */
+function defaultCliEntry(): string | null {
+  const argv1 = process.argv[1];
+  if (!argv1) return null;
+  try {
+    const abs = resolve(argv1);
+    return existsSync(abs) && /\.[cm]?js$/.test(abs) ? abs : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The pi extension this CLI installs — ONE self-contained ES module with no
+ * imports beyond Node builtins, so it keeps working after the CLI package is
+ * upgraded, moved, or removed (the only link back is the `CLI_ENTRY` path, and
+ * a missing one degrades to `vibeflow` on PATH).
+ *
+ * API it targets (`@earendil-works/pi-coding-agent` docs/extensions.md):
+ * - `export default function (pi: ExtensionAPI)` — the documented factory form;
+ * - `pi.on("session_start" | "session_shutdown")` — docs require background
+ *   processes to start in `session_start`, never from the factory, and to be
+ *   closed by an idempotent `session_shutdown` handler;
+ * - `pi.sendMessage({customType, content, display}, {triggerTurn})`;
+ * - `pi.registerCommand(name, {description, handler})` + `ctx.ui.notify`.
+ *
+ * The child is pinned with `--since <start iso>`: `--follow` replays its newest
+ * page when it starts, and a session must not re-announce old events as work.
+ */
+export function renderPiExtension(
+  version: string,
+  cliEntry: string | null = defaultCliEntry(),
+): string {
+  return `// vibeflow-cli: ${version}
+// Generated by \`vibeflow setup pi\` — rerun that command to refresh it.
+// Streams vibeflow task notifications into pi: one line per event, no detail —
+// run \`vibeflow tasks --get <taskId>\` for that. Read-only: it never writes.
+import { spawn } from "node:child_process";
+
+const CUSTOM_TYPE = "vibeflow-notifications";
+// Resolved when this file was installed; null means "vibeflow" on PATH.
+const CLI_ENTRY = ${JSON.stringify(cliEntry)};
+const CLI_ARGS = ["notifications", "--follow", "--json", "--local"];
+
+function describeEvent(event) {
+  const changed =
+    Array.isArray(event.changed) && event.changed.length > 0
+      ? event.changed.join(",")
+      : "-";
+  return "task " + event.taskId + " " + event.type + " (" + changed + ")";
+}
+
+function errorText(error) {
+  if (error && typeof error.message === "string") return error.message;
+  return String(error);
+}
+
+export default function (pi) {
+  let child = null;
+  let connected = false;
+  let lastEventTs = null;
+  let eventsSeen = 0;
+  let failure = null;
+  let failureReported = false;
+
+  function statusLine() {
+    const parts = [
+      "vibeflow notifications: " + (connected ? "connected" : "disconnected"),
+      "last event: " + (lastEventTs === null ? "none" : lastEventTs),
+      "events seen this session: " + eventsSeen,
+    ];
+    if (failure !== null) parts.push("problem: " + failure);
+    return parts.join(" · ");
+  }
+
+  // A broken feed is not work: report it once, and never start a turn.
+  function warn(message) {
+    failure = message;
+    if (failureReported) return;
+    failureReported = true;
+    try {
+      pi.sendMessage(
+        { customType: CUSTOM_TYPE, content: message, display: true },
+        { triggerTurn: false },
+      );
+    } catch {
+      // Reporting must never crash pi.
+    }
+  }
+
+  function onLine(line) {
+    const text = line.trim();
+    if (text === "") return;
+    let event;
+    try {
+      event = JSON.parse(text);
+    } catch {
+      return; // not an event line
+    }
+    if (event === null || typeof event !== "object") return;
+    if (typeof event.taskId !== "string" || typeof event.type !== "string") return;
+    eventsSeen += 1;
+    if (typeof event.ts === "string") lastEventTs = event.ts;
+    pi.sendMessage(
+      { customType: CUSTOM_TYPE, content: describeEvent(event), display: true },
+      { triggerTurn: true },
+    );
+  }
+
+  function start() {
+    if (child !== null) return;
+    const command = CLI_ENTRY === null ? "vibeflow" : process.execPath;
+    const args = CLI_ENTRY === null ? CLI_ARGS.slice() : [CLI_ENTRY].concat(CLI_ARGS);
+    // Skip the replay of the newest page: this session starts now.
+    args.push("--since", new Date().toISOString());
+    let spawned;
+    try {
+      spawned = spawn(command, args, { stdio: ["ignore", "pipe", "ignore"] });
+    } catch (error) {
+      warn(
+        "vibeflow notifications could not start (" +
+          errorText(error) +
+          ") — run \`vibeflow notifications --follow --json --local\` in a terminal to check.",
+      );
+      return;
+    }
+    child = spawned;
+    connected = true;
+    failure = null;
+    let buffered = "";
+    spawned.stdout.setEncoding("utf8");
+    spawned.stdout.on("data", function (chunk) {
+      buffered += chunk;
+      const lines = buffered.split("\\n");
+      buffered = lines.pop() || "";
+      for (let i = 0; i < lines.length; i += 1) onLine(lines[i]);
+    });
+    spawned.on("error", function (error) {
+      if (child === spawned) {
+        child = null;
+        connected = false;
+      }
+      warn(
+        "vibeflow notifications could not start (" +
+          errorText(error) +
+          ") — is \`vibeflow\` on PATH?",
+      );
+    });
+    spawned.on("exit", function (code) {
+      if (child === spawned) child = null;
+      connected = false;
+      if (code !== null && code !== 0) {
+        warn(
+          "vibeflow notifications exited with code " +
+            code +
+            " — run it in a terminal to see why.",
+        );
+      }
+    });
+  }
+
+  // Idempotent: session_start/session_shutdown may pair up more than once
+  // (reload, /new, /resume) and the child must never be leaked.
+  function stop() {
+    const running = child;
+    child = null;
+    connected = false;
+    if (running === null) return;
+    try {
+      running.kill();
+    } catch {
+      // already gone
+    }
+  }
+
+  pi.registerCommand("vibeflow-status", {
+    description:
+      "Vibeflow notification feed: connected, last event, events this session",
+    handler: async function (_args, ctx) {
+      ctx.ui.notify(statusLine(), connected ? "info" : "warning");
+    },
+  });
+
+  pi.on("session_start", function () {
+    start();
+  });
+  pi.on("session_shutdown", function () {
+    stop();
+  });
+}
+`;
+}

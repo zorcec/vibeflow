@@ -141,6 +141,18 @@
         "[target]"
       ]
     },
+    "setup": {
+      "flags": [
+        "--check",
+        "--dry-run",
+        "--force",
+        "--json",
+        "--project"
+      ],
+      "positionals": [
+        "[target]"
+      ]
+    },
     "status": {
       "flags": [
         "--json"

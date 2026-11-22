@@ -279,6 +279,10 @@ describe("MCP drift test", () => {
       "pull",
       "push",
       "serve",
+      // Agent integration install (6b437690): writes a CLI-owned file under
+      // the developer's ~/.pi, never the task store. No MCP tool installs
+      // into a client's agent runtime, so the command stays CLI-only.
+      "setup",
       "status",
       "tasks",
       "telemetry",

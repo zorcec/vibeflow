@@ -49,6 +49,9 @@ const COMMANDS = [
   "pull",
   "push",
   "serve",
+  // Agent integration install (6b437690): local CLI-only; no MCP tool can
+  // write into a client's agent runtime.
+  "setup",
   "status",
   "tasks",
   "telemetry",

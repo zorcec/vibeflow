@@ -103,6 +103,8 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
     push: "hidden online-sync command; stays available as hidden CLI push, but is not reachable over MCP",
     mcp: "stdio transport entry — spawned per project by an MCP client; not a task operation",
     openapi: "prints the bundled OpenAPI spec to stdout; no task state",
+    setup:
+      "installs a CLI-owned agent integration file (~/.pi/agent/extensions, or .pi/extensions with --project) on the developer's own machine; no MCP tool can install into a client's agent runtime, and the integration that does work over any client is the CLI pipe `vibeflow notifications --follow --exec`. Its flags (--project/--force/--check/--dry-run/--json) tune that one local install, so no schema field owns them",
     serve: "long-running prototype/API server; the board server itself is reachable via start_kanban, but the HTML-target viewer mode is not an MCP operation",
     telemetry: "local telemetry opt-in/opt-out config; not a task operation",
     status:

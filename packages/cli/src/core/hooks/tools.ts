@@ -83,6 +83,10 @@ export const HOOK_TOOLS: readonly HookToolSpec[] = [
   { tool: "demo", surface: "cli", before: notGateable, after: readAfter() },
   { tool: "mcp", surface: "cli", before: notGateable, after: noAfter },
   { tool: "changelog", surface: "cli", before: notGateable, after: readAfter() },
+  // Agent integration install (ticket 6b437690): writes a file under the
+  // developer's own ~/.pi (or .pi/), never the task store — nothing to gate,
+  // but a readable record of the install is worth narrating.
+  { tool: "setup", surface: "cli", before: notGateable, after: readAfter() },
   { tool: "openapi", surface: "cli", before: notGateable, after: readAfter() },
   { tool: "telemetry", surface: "cli", before: notGateable, after: readAfter() },
   { tool: "auth", surface: "cli", before: notGateable, after: readAfter() },
