@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.28.3
+
+### Patch Changes
+
+- e7ad366: A fresh, empty project gets demo data on its first local board.
+
+  `vibeflow kanban` in a folder that is not a project yet used to refuse; in an
+  initialised but empty store it showed a silent blank board. Both now land on a
+  populated example:
+
+  - A folder with no `.git` and no `.vibeflow/` gets one created, with a loud
+    one-line notice naming the path.
+  - A store with zero tasks is seeded with the same 13 example cards as
+    `vibeflow demo` (all statuses, three linked sub-tasks, comments, an
+    attachment, one URL+selector card, two verified done cards).
+  - It happens **once per project**: a marker (`demo-seed.json`) decides, so
+    deleting the samples does not bring them back, and a project that already has
+    any task is never touched.
+
+- a5a9f27: `vibeflow demo` — a populated demo board in one command, no project needed.
+
+  The hosted app seeds a demo board for a fresh account, but the CLI showed the
+  user's real (usually empty) store, so a first run looked like the tool did
+  nothing. `vibeflow demo` seeds a fixed demo store at `~/.vibeflow-demo` (never
+  your project, never your cwd — so it runs from any directory, with or without
+  `.git`) and boots the board on it.
+
+  - 13 cards across all five statuses, 3 sub-tasks linked to their parent, tags
+    and priorities, a two-party comment thread, one attachment, one card
+    annotated with a real URL + selector, and two done cards carrying evidence.
+  - Re-running is a no-op while the seed version matches; `--reset` wipes and
+    reseeds. `-p/--port`, `--host` and `--no-open` match `vibeflow kanban`.
+  - Prints one "what to try next" line, and the demo store path, so demo data is
+    never mistaken for real work.
+
+- 83b01cf: Kanban only — the List and Compact views and the Board/List/Compact view
+  toggle are gone everywhere, at every width (owner order, 2026-11-21). The
+  board always renders its kanban columns; a stored `list`/`compact` view
+  preference resolves to board with no migration.
+- 9ad2d0b: Phone board: status-filter chips removed, remaining filters centred.
+
+  Owner annotations from the live board (tickets bx90tjzo / bzn2w18w):
+
+  - The All / Todo / In progress / Review / Done chips row
+    (`[data-testid="filter-bar"] > .kb-status-filters`) is removed at phone
+    widths. It cost a full band above the cards while the single-lane board
+    already names the active lane in its header.
+  - The Tags / User / Type trigger row that remains is centred instead of
+    left-flushed, which read as clipped at 360px.
+
+  Desktop (≥768px) is unchanged: the chips are still shown and the bar keeps its
+  left-aligned layout.
+
 ## 0.28.2
 
 ### Patch Changes
