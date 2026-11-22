@@ -24,3 +24,15 @@ process.env.VIBEFLOW_TELEMETRY = "0";
 if (!process.env.VIBEFLOW_HOOKS) {
   process.env.VIBEFLOW_HOOKS = "0";
 }
+/**
+ * Local notification events OFF by default under test (ticket ecba6126):
+ * every CLI mutation would otherwise append a line to
+ * `<project>/.vibeflow/notifications.jsonl`, so a unit test that writes tasks
+ * would leave — and count — notification state it never asked for. The
+ * notification suites opt back in per case: an explicit
+ * `VIBEFLOW_EVENTS=1` for a spawned child, or `notificationsEnabled({...})`
+ * for the pure predicate.
+ */
+if (!process.env.VIBEFLOW_EVENTS) {
+  process.env.VIBEFLOW_EVENTS = "0";
+}

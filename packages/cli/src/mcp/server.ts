@@ -16,6 +16,12 @@ import { CLI_VERSION } from "../version.js";
 import { manifest } from "./manifest.js";
 import { capture } from "../telemetry.js";
 import {
+  appendNotification,
+  notificationsFromConfirmed,
+  notificationsEnabled,
+} from "../core/notifications.js";
+import type { ToolInvocationHandle } from "../core/hooks/invocation.js";
+import {
   resolveProjectAuthCached,
   type ProjectAuth,
 } from "../auth/project-auth.js";
@@ -201,6 +207,35 @@ async function checkSessionTarget(
 }
 
 /**
+ * Append the invocation's ONE local notification (ticket ecba6126),
+ * projected from the confirmed effect the tool's operation recorded on the
+ * boundary scope — the SAME activity + payload the after-hook narrates. A
+ * tool with no confirmed activity (reads, dry-runs, refusals) writes
+ * nothing, and the projection itself decides what is not actionable
+ * (`push`/`pull` → no event).
+ *
+ * A failure is swallowed: a notification must never fail the tool call it
+ * describes. Every MCP transport dispatches through `invokeManifestTool`, so
+ * this is the one append site for the surface.
+ */
+function recordToolNotification(
+  handle: ToolInvocationHandle,
+  ctx: OperationContext,
+): void {
+  if (handle.confirmed.length === 0 || !notificationsEnabled()) return;
+  try {
+    // One event per confirmed EFFECT (see the CLI boundary).
+    for (const event of notificationsFromConfirmed(handle.confirmed, {
+      actor: "agent",
+    })) {
+      appendNotification(ctx.projectDir, event);
+    }
+  } catch {
+    /* a notification must never fail a tool call */
+  }
+}
+
+/**
  * Run one manifest tool with the shared telemetry + result envelope
  * (ticket 4e942bed telemetry, ticket 0847833f reuse). Extracted from
  * the registration loop above with zero behavior change so the
@@ -277,6 +312,12 @@ export async function invokeManifestTool(
   const boundaryInstructions = dryRun
     ? []
     : await finishToolInvocation(handle, { ok: result.ok });
+  // Local notification event (ticket ecba6126): exactly one per successful
+  // mutation, appended at the ONE dispatch every MCP transport shares and
+  // projected from the confirmed activity on the boundary scope.
+  if (!dryRun && result.ok) {
+    recordToolNotification(handle, ctx);
+  }
   if (boundaryInstructions.length > 0) {
     result = {
       ...result,

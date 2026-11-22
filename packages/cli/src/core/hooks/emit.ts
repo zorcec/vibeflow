@@ -49,7 +49,35 @@ export interface HookScope {
   tool: string;
   surface: HookSurface;
   seen: Set<string>;
+  /**
+   * Every CONFIRMED durable effect of this invocation, in confirmation
+   * order (ticket ecba6126), recorded by {@link emitAfterHook} BEFORE any
+   * early return — it must not depend on hooks being enabled, a hook file
+   * existing, or the hook being trusted: those gate NARRATION, not the fact
+   * that the write happened. The invocation boundary projects each one into
+   * a notification (`notificationsFromConfirmed`), so a notification is a
+   * projection of the same confirmed payload the after-hook sees, never a
+   * second description of the same write.
+   *
+   * ONE event per confirmed EFFECT, not per command: `--edit --set-status X
+   * --comment "…"` confirms `task.update` AND `task.comment`, and an agent
+   * told only about the comment would miss that the status moved. Identical
+   * repeats are already collapsed by `seen`, so this never carries a
+   * duplicate of the same effect.
+   */
+  confirmed: ConfirmedEffect[];
 }
+
+/**
+ * One confirmed effect: the activity TOGETHER with the payload describing
+ * it, as a correlated pair — narrowing `activity` narrows `payload` (a
+ * `{activity: HookActivity; payload: HookConfirmedPayloads[HookActivity]}`
+ * pair of independent unions would let a comment payload ride a claim
+ * activity). `emitAfterHook`'s conditional signature is what pairs them.
+ */
+export type ConfirmedEffect = {
+  [A in HookActivity]: { activity: A; payload: HookConfirmedPayloads[A] };
+}[HookActivity];
 
 export interface ToolInvocation {
   tool: string;
@@ -58,7 +86,7 @@ export interface ToolInvocation {
 
 /** One scope per operation invocation — discarded with it, never process-wide. */
 export function createHookScope(inv: ToolInvocation = { tool: "tasks", surface: "cli" }): HookScope {
-  return { tool: inv.tool, surface: inv.surface, seen: new Set() };
+  return { tool: inv.tool, surface: inv.surface, seen: new Set(), confirmed: [] };
 }
 
 export interface EmitContext {
@@ -225,6 +253,24 @@ export async function emitAfterHook<A extends HookActivity | null>(
   extra: AfterHookExtras = {},
 ): Promise<string[]> {
   const env = opts.env ?? process.env;
+  // Capture the CONFIRMED effect FIRST (ticket ecba6126): the invocation
+  // boundary projects each one into a local notification event, so it must
+  // be recorded before — never after — every early return below (hooks
+  // disabled, reentrancy guard, no hook file, untrusted hook). Those gates
+  // decide whether the effect is NARRATED, not whether it is the effect the
+  // body just reported. Append, never replace: one command can confirm two
+  // effects (`--edit --status --comment`) and the boundary emits one event
+  // per effect; see `HookScope.confirmed`.
+  if (activity !== null) {
+    // `activity`/`payload` are a correlated pair by this signature's
+    // conditional type; the assertion only re-states the pairing for the
+    // union-typed element (TS cannot reduce the conditional over an
+    // unresolved type parameter).
+    scope.confirmed.push({
+      activity,
+      payload,
+    } as ConfirmedEffect);
+  }
   if (hooksDisabled(env)) return [];
   // Reentrancy guard: a hook shelling out to `vibeflow ...` runs nested
   // commands with hooks disabled — nested WRITES still work, they just

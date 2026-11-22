@@ -24,6 +24,7 @@
 import {
   createHookScope,
   emitAfterHook,
+  type ConfirmedEffect,
   type EmitOptions,
   type HookScope,
 } from "./emit.js";
@@ -44,6 +45,16 @@ export interface ToolInvocationHandle {
   scope: HookScope;
   /** Set by the body once the target resolves (project dir + mode for the emit ctx). */
   target?: { projectDir: string; mode: "local" | "saas" };
+  /**
+   * The invocation's confirmed effects, forwarded from `scope` (the object
+   * the owning operation holds — it never sees the handle). The CLI
+   * `toolAction` wrapper and the MCP `invokeManifestTool` boundary read it
+   * to project the notification events (ticket ecba6126) after the body
+   * returns, so it necessarily survives `finishToolInvocation` — the finish
+   * only READS the scope and never clears it. One event per effect, not one
+   * per command; see `HookScope.confirmed`.
+   */
+  readonly confirmed: readonly ConfirmedEffect[];
 }
 
 /** Outcome the body reports: ok, the null-activity payload halves, dry-run. */
@@ -66,7 +77,17 @@ export interface ToolOutcome {
 export function beginToolInvocation(inv: ToolInvocation): ToolInvocationHandle {
   const spec = findHookTool(inv.tool, inv.surface);
   const tool = spec ? spec.tool : inv.tool;
-  return { tool, surface: inv.surface, scope: createHookScope({ tool, surface: inv.surface }) };
+  const scope = createHookScope({ tool, surface: inv.surface });
+  return {
+    tool,
+    surface: inv.surface,
+    scope,
+    // Forwarded, not copied: the emitter appends to `scope.confirmed` and
+    // the boundary reads it through the handle afterwards.
+    get confirmed(): readonly ConfirmedEffect[] {
+      return scope.confirmed;
+    },
+  };
 }
 
 /**

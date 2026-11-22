@@ -438,6 +438,7 @@ export const LOCAL_ONLY_ROUTES: LocalOnlyRoute[] = [
   { method: "GET", path: "/api/github-url", reason: "Folded into GET /api/v0/project scope description — not a standalone v0 op." },
   { method: "DELETE", path: "/api/mcp", reason: "MCP session teardown — local transport detail, classified under mcp-get/mcp-post." },
   { method: "POST", path: "/api/tasks/remove-tag", reason: "Kanban Tags-filter bulk removal — board-local UI mutation (confirm, mutate, refresh); the portable mutation stays PATCH /api/tasks/:id — not v0." },
+  { method: "GET", path: "/api/notifications", reason: "Local notification feed for on-machine agents (ticket ecba6126) — the portable contract is v0 GET /api/v0/notifications with the identical body; this route reads the project's own .vibeflow/notifications.jsonl, which does not exist on the hosted side." },
 ];
 
 /** Non-API route prefixes carved out of the duplication guard, with reasons. */

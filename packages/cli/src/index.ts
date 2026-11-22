@@ -24,6 +24,11 @@ import {
 } from "./core/tasks.js";
 import { addComment } from "./core/comments.js";
 import {
+  appendNotification,
+  notificationsFromConfirmed,
+  notificationsEnabled,
+} from "./core/notifications.js";
+import {
   attentionClaimAlert,
   ATTENTION_NOTICE_CODE,
 } from "./core/attention.js";
@@ -482,6 +487,38 @@ export interface ToolActionOutcome extends ToolOutcome {
 }
 
 /**
+ * Append the invocation's ONE notification event (ticket ecba6126),
+ * projected from the confirmed effect the operation recorded on the scope —
+ * the same `HookActivity` + confirmed payload the after-hook narrates, so
+ * the event can never describe a write the hooks did not see.
+ *
+ * Guards: no confirmed effect (reads, refused writes), no resolved project
+ * (nothing to append to), a dry-run preview (nothing was written), the kill
+ * switch. Every failure is swallowed — a notification is a side channel and
+ * must never fail the task write it describes. `actor` is the caller's
+ * identity when the environment names one, else the agent default.
+ */
+function emitInvocationNotification(
+  handle: ToolInvocationHandle,
+  dryRun: boolean,
+): void {
+  const projectDir = handle.target?.projectDir;
+  if (handle.confirmed.length === 0 || projectDir === undefined) return;
+  if (dryRun || !notificationsEnabled()) return;
+  try {
+    // One event per confirmed EFFECT: a single command can report two
+    // (`--edit --set-status X --comment "…"`), and both are true.
+    for (const event of notificationsFromConfirmed(handle.confirmed, {
+      actor: process.env.VIBEFLOW_ACTOR?.trim() || "agent",
+    })) {
+      appendNotification(projectDir, event);
+    }
+  } catch {
+    /* a notification must never fail a task write */
+  }
+}
+
+/**
  * One wrapper for the hookable CLI actions (ADR-0007 §9): begins the
  * tool invocation, runs the body with the handle, then finishes — the
  * null-activity after hook fires here iff the invocation succeeded,
@@ -506,6 +543,10 @@ function toolAction<T extends unknown[]>(
         mode: outcome.mode ?? "local",
       };
     }
+    // Local notification event (ticket ecba6126), BEFORE the finish so the
+    // wrapper is the one append site for every CLI mutation. Projected from
+    // the confirmed effect the body recorded — never reported separately.
+    emitInvocationNotification(handle, outcome.dryRun === true);
     // Refusals set the exit code before returning (void outcome) ⇒ not
     // ok. NB: read through a local — spelling the read as a strict
     // equality against the global trips the json-refusal guard's
@@ -3075,6 +3116,10 @@ program
             return;
           }
 
+          // A claim IS a mutation: the `task.claim` after-hook below records
+          // the confirmed effect on the invocation scope, and the wrapper
+          // projects it into the one notification event (ticket ecba6126).
+
           // A dry-run preview names the task but writes nothing: no
           // next actions (there is nothing to act on yet) and no
           // "moved to in-progress" wording below — the previewed record
@@ -3885,6 +3930,10 @@ program
               ? { links: [{ taskId: parentId, type: "parent" as const }] }
               : {}),
           });
+
+          // The `task.create` after-hook below records the confirmed effect
+          // on the invocation scope; the wrapper projects it into the one
+          // notification event (ticket ecba6126).
 
           const localAddNextActions = getNextActions("add", created.id);
           // After-hook (Stage 1, ADR-0006): the legacy local add writes
@@ -6351,6 +6400,13 @@ program
             }
           }
 
+          // The edit's confirmed effects are reported by the after-hooks
+          // below (`task.update`, plus `task.comment` when the comment
+          // landed); the invocation boundary projects the LAST of them into
+          // the one notification event (ticket ecba6126). Its `changed` is
+          // the confirmed key list — the richer answer, not a second
+          // flag-derived one.
+
           // Reason-comment link (ticket 0752d55c, reason-link fix): store the
           // written comment's id on the task so the feed tints the exact
           // reason instead of proxying the latest comment. Best-effort like
@@ -7078,7 +7134,11 @@ program
         // the results into the envelopes above); op-less branches
         // (commit/reindex/normalize) narrate here with no extras. Dry-run
         // previews write nothing and narrate nothing.
-        return { projectDir: resolve(dir), json: opts.json, dryRun: opts.dryRun === true };
+        return {
+          projectDir: resolve(dir),
+          json: opts.json,
+          dryRun: opts.dryRun === true,
+        };
       }
       return runTasksAndFlush();
       },

@@ -1,4 +1,10 @@
 import { taskReadNotices, type TaskReadFinding } from "../core/task-record-read.js";
+import {
+  appendNotification,
+  newNotificationId,
+  notificationsEnabled,
+  readNotifications,
+} from "../core/notifications.js";
 import { assertRemovableTag, removeTagFromAllTasks } from "../core/remove-tag.js";
 import { getTaskRoot } from "../core/task-listing.js";
 import {
@@ -230,8 +236,24 @@ function maybeRegisterChat(
  * list both parts; screenshot set/clear only touches task fields (`task`). */
 type PanelChangedPart = "comments" | "files" | "task";
 
-/** Broadcast a tasks-updated event, optionally scoped to a specific task. */
+/** Broadcast a tasks-updated event, optionally scoped to a specific task.
+ *
+ * A task-scoped broadcast is ALSO a local task mutation (ticket ecba6126): a
+ * human clicking on the board never passes through the CLI's `toolAction`
+ * wrapper, so this is the human-click seam for `GET /api/notifications`. The
+ * event is appended after the broadcast, one per scoped call, and never
+ * throws — a missing notification must not break a board interaction. The
+ * unscoped call (a whole-board reload, no task id) names no task and so
+ * emits nothing.
+ *
+ * Deliberately NOT projected from `HookActivity` (unlike every other seam):
+ * a board click performs no activity — nothing is gated, nothing is
+ * narrated, there is no confirmed `HookConfirmedPayloads` entry to project.
+ * Its `changed` names are the PANEL-level vocabulary (`task` | `comments` |
+ * `files`) the board itself broadcasts, which is why the event type stays
+ * the generic `task.update` and the parts are not task-field names. */
 function broadcastTaskUpdated(
+  projectDir: string,
   broadcast: BroadcastFn,
   taskId?: string,
   changed?: PanelChangedPart[],
@@ -241,6 +263,19 @@ function broadcastTaskUpdated(
     ...(taskId && { taskId }),
     ...(changed && { changed }),
   });
+  if (!taskId || !notificationsEnabled()) return;
+  try {
+    appendNotification(projectDir, {
+      id: newNotificationId(),
+      ts: new Date().toISOString(),
+      type: "task.update",
+      taskId,
+      actor: "board",
+      ...(changed && changed.length > 0 ? { changed: [...changed] } : {}),
+    });
+  } catch {
+    /* a notification must never fail a board interaction */
+  }
 }
 
 // Injected at build time by tsup; undefined in raw TypeScript runs.
@@ -326,6 +361,40 @@ function registerTaskApi(
   // CLI changelog — powers the kanban "What's New" modal and full-changelog view.
   app.get("/api/changelog", (_req, res) => {
     res.json(buildChangelogResponse(readChangelogContent()));
+  });
+
+  // Local notification feed (ticket ecba6126): every local task mutation appends
+  // one event to `.vibeflow/notifications.jsonl` and a client polls here with
+  // the previous response's `nextTs` as `since`. `since` is INCLUSIVE
+  // (at-least-once: a boundary event may repeat, never disappear), `gap` says
+  // events were evicted before `since`, and `truncated` says more matched than
+  // `limit` (the NEWEST win). Same no-auth local rule as every other /api route
+  // here; CORS is the app-wide middleware.
+  app.get("/api/notifications", (req, res) => {
+    const sinceParam = req.query.since;
+    if (sinceParam !== undefined) {
+      if (typeof sinceParam !== "string" || Number.isNaN(Date.parse(sinceParam))) {
+        res.status(400).json({
+          error: "INVALID_SINCE",
+          message:
+            "`since` must be an ISO-8601 UTC timestamp with milliseconds, exactly as returned in `nextTs` — e.g. 2026-11-22T16:58:45.140Z. Omit `since` to read the newest events instead.",
+          expectedFormat: "YYYY-MM-DDTHH:mm:ss.sssZ",
+          example: "2026-11-22T16:58:45.140Z",
+        });
+        return;
+      }
+    }
+    const limitParam = req.query.limit;
+    const limit =
+      typeof limitParam === "string" && limitParam.trim() !== ""
+        ? Number.parseInt(limitParam, 10)
+        : undefined;
+    res.json(
+      readNotifications(projectDir, {
+        ...(typeof sinceParam === "string" ? { since: sinceParam } : {}),
+        ...(limit !== undefined && !Number.isNaN(limit) ? { limit } : {}),
+      }),
+    );
   });
 
   app.get("/api/tasks", (req, res) => {
@@ -943,7 +1012,7 @@ function registerTaskApi(
       undefined,
       validSource,
     );
-    broadcastTaskUpdated(broadcast, id, ["comments"]);
+    broadcastTaskUpdated(projectDir, broadcast, id, ["comments"]);
     res.json({ success: true, comment });
   });
 
@@ -959,7 +1028,7 @@ function registerTaskApi(
       res.status(404).json({ error: "Comment not found" });
       return;
     }
-    broadcastTaskUpdated(broadcast, id, ["comments"]);
+    broadcastTaskUpdated(projectDir, broadcast, id, ["comments"]);
     res.json({ success: true, comment });
   });
 
@@ -970,7 +1039,7 @@ function registerTaskApi(
       res.status(404).json({ error: "Comment not found" });
       return;
     }
-    broadcastTaskUpdated(broadcast, id, ["comments"]);
+    broadcastTaskUpdated(projectDir, broadcast, id, ["comments"]);
     res.json({ success: true });
   });
 
@@ -1036,7 +1105,7 @@ function registerTaskApi(
       );
       // A file op also writes a system comment trace above, so both panel
       // parts are stale (ticket d4c533f9).
-      broadcastTaskUpdated(broadcast, id, ["files", "comments"]);
+      broadcastTaskUpdated(projectDir, broadcast, id, ["files", "comments"]);
       res.json({ success: true, file: info });
     },
   );
@@ -1065,7 +1134,7 @@ function registerTaskApi(
     );
     // The removal trace above is a comment write, so both panel parts
     // are stale (ticket d4c533f9).
-    broadcastTaskUpdated(broadcast, id, ["files", "comments"]);
+    broadcastTaskUpdated(projectDir, broadcast, id, ["files", "comments"]);
     res.json({ success: true });
   });
 
@@ -1100,7 +1169,7 @@ function registerTaskApi(
       updateTask(projectDir, id, { screenshot: baseline } as Partial<Task>);
       // Screenshot attaches only touch task fields — no comments/files
       // refetch needed (ticket d4c533f9).
-      broadcastTaskUpdated(broadcast, id, ["task"]);
+      broadcastTaskUpdated(projectDir, broadcast, id, ["task"]);
       res.json({ success: true, screenshot: baseline });
       return;
     }
@@ -1114,7 +1183,7 @@ function registerTaskApi(
       join(screenshotsDir, filename),
       Buffer.from(screenshot, "base64"),
     );
-    broadcastTaskUpdated(broadcast, id, ["task"]);
+    broadcastTaskUpdated(projectDir, broadcast, id, ["task"]);
     res.json({ success: true, screenshot: filename, proof: true });
   });
 
@@ -1130,7 +1199,7 @@ function registerTaskApi(
       unlinkSync(filePath);
     }
     updateTask(projectDir, id, { screenshot: undefined } as Partial<Task>);
-    broadcastTaskUpdated(broadcast, id, ["task"]);
+    broadcastTaskUpdated(projectDir, broadcast, id, ["task"]);
     res.json({ success: true });
   });
 
@@ -1411,7 +1480,7 @@ function registerMetaApis(
             /* ignore — already removed */
           }
         }
-        if (broadcast) broadcastTaskUpdated(broadcast);
+        if (broadcast) broadcastTaskUpdated(projectDir, broadcast);
       }
       res.json({
         imported: result.imported,
