@@ -313,17 +313,26 @@ const INSTALL_PROJECT = ${JSON.stringify(projectDir)};
 // terminal uses pick the feed.
 const CLI_ARGS = ["notifications", "--follow", "--json"];
 
+// Keys a write always stamps, so they never answer "what happened": a status
+// move arrives as (updatedAt,status,assigneeId,assigneeOrigin,verified) and the
+// one word a reader needs is "status". Display-only filtering — the event
+// payload stays untouched, so nothing is hidden from a consumer that reads the
+// JSON itself.
+const NOISE_KEYS = ["updatedAt", "sortKey", "rev", "author", "verified", "assigneeOrigin"];
+
 function describeEvent(event) {
   // 'changed' names the fields a write touched; events without it (comment,
   // claim, create) carry the new values instead, so show those keys rather
   // than a bare "-" that told the reader nothing.
-  const changed =
-    Array.isArray(event.changed) && event.changed.length > 0
-      ? event.changed.join(",")
-      : event.to && typeof event.to === "object"
-        ? Object.keys(event.to).join(",") || "-"
-        : "-";
-  return "task " + event.taskId + " " + event.type + " (" + changed + ")";
+  const fromChanged = Array.isArray(event.changed) && event.changed.length > 0;
+  const keys = fromChanged
+    ? event.changed
+    : event.to && typeof event.to === "object"
+      ? Object.keys(event.to)
+      : [];
+  const meaningful = keys.filter((key) => NOISE_KEYS.indexOf(key) < 0);
+  const shown = meaningful.length > 0 ? meaningful.join(",") : fromChanged ? "-" : "-";
+  return "task " + event.taskId + " " + event.type + " (" + shown + ")";
 }
 
 function errorText(error) {
