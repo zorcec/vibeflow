@@ -1695,10 +1695,10 @@ async function readResponseBody(res: Response): Promise<ParsedResponseBody> {
 
 /**
  * Create a new task in the SaaS.
- * Returns the created task or null on failure / not authenticated.
+ * Returns the created task or a refusal — never a success the board did not
+ * name (ticket 73cb9048).
  */
 export async function createSaasTask(params: {
-  id?: string;
   title: string;
   description?: string;
   annotatedElementText?: string;
@@ -1795,6 +1795,33 @@ export async function createSaasTask(params: {
         error: {
           code: "HTTP_ERROR",
           message: `HTTP ${res.status}`,
+          status: res.status,
+          path: createPath,
+          ...(raw.bodyHead !== undefined
+            ? { bodyHead: raw.bodyHead }
+            : {}),
+        },
+      };
+    }
+    // A 2xx only MEANS "created" when the body names the record (ticket
+    // 73cb9048): identity is server-stamped, so the id printed by the caller
+    // must come from THIS answer. A route that answers an acceptance
+    // envelope (`{ok:true}`), or echoes a request that carried no id, used
+    // to be read as a created task — the CLI printed `✓ Task created` and an
+    // id (or `undefined`) that resolved to nothing on the board.
+    const createdId =
+      typeof raw.parsed === "object" && raw.parsed !== null
+        ? (raw.parsed as { id?: unknown }).id
+        : undefined;
+    if (typeof createdId !== "string" || createdId.length === 0) {
+      return {
+        ok: false,
+        error: {
+          code: "INVALID_RESPONSE",
+          message:
+            `The board accepted the create but answered without a task id (HTTP ${res.status} ${createPath})` +
+            `${raw.bodyHead !== undefined ? ` — response head: ${raw.bodyHead}` : ""}. ` +
+            "The task may exist on the board — check it there before retrying.",
           status: res.status,
           path: createPath,
           ...(raw.bodyHead !== undefined

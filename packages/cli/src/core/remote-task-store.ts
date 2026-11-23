@@ -244,6 +244,16 @@ export function toRemoteWriteRefusal(
       retryable: false,
     });
   }
+  // A refusal the CLIENT detected about the ANSWER — a 2xx that named no
+  // record (ticket 73cb9048) — is a fact about this call, not an outage.
+  // Relabelling it E_BACKEND_UNAVAILABLE ("Online board read failed …")
+  // would hide the one thing the caller must act on.
+  if (error.code === "INVALID_RESPONSE") {
+    return new RemoteReadError(error.code, error.message, {
+      suggestion: fallbackSuggestion,
+      retryable: false,
+    });
+  }
   return toRemoteRefusal(error, fallbackSuggestion);
 }
 

@@ -33,8 +33,10 @@
  */
 import { describe, it, expect, afterEach } from "vitest";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -84,14 +86,33 @@ function git(dir: string, args: string[]): string {
   }).toString();
 }
 
+/** Task records written under `<store>/.vibeflow/tasks` (flat or dated layout). */
+function localTaskFiles(store: string): string[] {
+  const tasksDir = join(store, ".vibeflow", "tasks");
+  if (!existsSync(tasksDir)) return [];
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith(".json")) out.push(full);
+    }
+  };
+  walk(tasksDir);
+  return out;
+}
+
 /**
  * Fake online backend with mutable server state: PATCH merges into the
  * stored row (like the real route), comment POSTs append to an in-memory
- * log, and both can be forced to fail per test.
+ * log, and both can be forced to fail per test. `createReply` replaces the
+ * create route's 201 body (nothing is stored) — the knob for proving that a
+ * 2xx which does not NAME the record is never reported as a created task.
  */
 async function startFakeBackend(opts?: {
   failComment?: boolean;
   warning?: string;
+  createReply?: Record<string, unknown>;
 }): Promise<{
   url: string;
   requests: RecordedRequest[];
@@ -143,6 +164,10 @@ async function startFakeBackend(opts?: {
     req.on("end", () => {
       requests.push({ method: req.method ?? "", url: rawUrl, body });
       if (req.method === "POST" && pathname === "/api/v0/tasks") {
+        if (opts?.createReply) {
+          finish(201, opts.createReply);
+          return;
+        }
         const parsed = (JSON.parse(body || "{}") as Record<string, unknown>);
         const id = (parsed.id as string) ?? "server-minted-id";
         const row = { ...boardTask(id, (parsed.title as string) ?? ""), ...parsed };
@@ -443,5 +468,175 @@ describe("online write effects (characterization)", () => {
     expect(fake.taskState("annotated000000000000000000001")?.status).toBe(
       "review",
     );
+  });
+});
+
+/**
+ * Ticket 73cb9048 (OVI): the silent online write.
+ *
+ * A project that DECLARES a board (it carries the pointer) but whose
+ * credential cannot be resolved used to resolve "local", so `tasks --add`
+ * took the local branch and printed `✓ Task created` with a locally-minted id
+ * for a task the user's board never received — the success line of a write
+ * that persisted nowhere the caller can read.
+ *
+ * ADR-0005 says the opposite: "a pointer without a credential refuses, never
+ * silent local". These tests pin the refusal (and, on the healthy link, that
+ * the printed id really is the BOARD's id and reads back through the same
+ * resolution).
+ */
+describe("an online project with a refused credential never reports a created task", () => {
+  it("--add refuses: non-zero exit, no success line, no id, no local task file", async () => {
+    const store = freshDir("refused-store-");
+    const home = freshDir("refused-home-");
+    const fake = await startFakeBackend();
+    // Pointer only — the unlinked state resolveProjectAuth reports as
+    // `unlinked` (a declared board with no usable credential).
+    setupSaaSMode({ home, store, apiUrl: fake.url, omitCredential: true });
+
+    const r = await spawnCli(
+      ["tasks", store, "--add", "--title", "OVI probe"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: fake.url } },
+    );
+
+    expect(r.code).not.toBe(0);
+    // No success line, no id — on either stream.
+    expect(r.stdout).not.toContain("Task created");
+    expect(r.stdout).not.toMatch(/id:\s/);
+    expect(r.stderr).not.toContain("Task created");
+    // Nothing was written anywhere: no local ghost file, no invented POST.
+    expect(localTaskFiles(store)).toEqual([]);
+    expect(fake.createBodies()).toEqual([]);
+    // The refusal names the one remedy.
+    expect(r.stderr).toContain("vibeflow login");
+  });
+
+  it("--json refuses with a NOT_CONNECTED envelope on stderr and a clean stdout", async () => {
+    const store = freshDir("refused-store-");
+    const home = freshDir("refused-home-");
+    const fake = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: fake.url, omitCredential: true });
+
+    const r = await spawnCli(
+      ["tasks", store, "--add", "--title", "OVI probe", "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: fake.url } },
+    );
+
+    expect(r.code).not.toBe(0);
+    expect(r.stdout.trim()).toBe("");
+    const envelope = JSON.parse(r.stderr) as {
+      ok: boolean;
+      error: { code: string; message: string; suggestion?: string };
+    };
+    expect(envelope.ok).toBe(false);
+    expect(envelope.error.code).toBe("NOT_CONNECTED");
+    expect(envelope.error.message).toContain("board-1");
+    expect(envelope.error.suggestion).toContain("vibeflow login");
+    expect(localTaskFiles(store)).toEqual([]);
+  });
+
+  it("the same refusal covers the reads, so nothing reports a phantom task", async () => {
+    const store = freshDir("refused-store-");
+    const home = freshDir("refused-home-");
+    const fake = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: fake.url, omitCredential: true });
+
+    const list = await spawnCli(["tasks", store, "--status", "todo"], {
+      cwd: store,
+      home,
+      env: { VIBEFLOW_API_URL: fake.url },
+    });
+    expect(list.code).not.toBe(0);
+    expect(list.stdout).not.toContain("Total:");
+    expect(list.stderr).toContain("vibeflow login");
+
+    const get = await spawnCli(
+      ["tasks", store, "--get", "0123456789abcdef0123456789abcd"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: fake.url } },
+    );
+    expect(get.code).not.toBe(0);
+    // Not a "Task not found" for a task the CLI never could read.
+    expect(get.stderr).not.toContain("Task not found");
+    expect(get.stderr).toContain("vibeflow login");
+  });
+
+  it("a project with NO board pointer is still local and creates locally", async () => {
+    const store = freshDir("local-store-");
+    const home = freshDir("local-home-");
+    const fake = await startFakeBackend();
+    // No pointer, no credential: a plain local project (the guard is about a
+    // REFUSED link, never about local mode).
+    const r = await spawnCli(
+      ["tasks", store, "--add", "--title", "Local probe", "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: fake.url } },
+    );
+    expect(r.code).toBe(0);
+    const created = (JSON.parse(r.stdout) as { task: { id: string } }).task;
+    expect(localTaskFiles(store)).toHaveLength(1);
+    expect(fake.createBodies()).toEqual([]);
+
+    const read = await spawnCli(["tasks", store, "--get", created.id, "--json"], {
+      cwd: store,
+      home,
+      env: { VIBEFLOW_API_URL: fake.url },
+    });
+    expect(read.code).toBe(0);
+    expect((JSON.parse(read.stdout) as { task: { id: string } }).task.id).toBe(
+      created.id,
+    );
+  });
+});
+
+describe("an online create only reports an id the board itself minted", () => {
+  it("prints the board's id and the same CLI reads it back", async () => {
+    const store = freshDir("mint-store-");
+    const home = freshDir("mint-home-");
+    const fake = await startFakeBackend();
+    setupSaaSMode({ home, store, apiUrl: fake.url });
+
+    const add = await spawnCli(
+      ["tasks", store, "--add", "--title", "Round trip", "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: fake.url } },
+    );
+    expect(add.code).toBe(0);
+    const creates = fake.createBodies();
+    expect(creates).toHaveLength(1);
+    // Identity is server-stamped: a client-minted id in the body could be
+    // echoed back by a route that stores it elsewhere, and the printed id
+    // would then name nothing the board can resolve (the 73cb9048 shape).
+    expect(creates[0]).not.toHaveProperty("id");
+
+    const created = (JSON.parse(add.stdout) as { task: { id: string } }).task;
+    expect(created.id).toBe("server-minted-id");
+
+    const read = await spawnCli(
+      ["tasks", store, "--get", created.id, "--json"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: fake.url } },
+    );
+    expect(read.code).toBe(0);
+    const task = (JSON.parse(read.stdout) as { task: { id: string; title: string } })
+      .task;
+    expect(task.id).toBe("server-minted-id");
+    expect(task.title).toBe("Round trip");
+  });
+
+  it("a 201 that does not name the record is a refusal, not a success line", async () => {
+    const store = freshDir("noname-store-");
+    const home = freshDir("noname-home-");
+    // A routes-shaped 201 (the body carries no task id): accepting it would
+    // print "Task created" and an id nothing can resolve.
+    const fake = await startFakeBackend({ createReply: { ok: true } });
+    setupSaaSMode({ home, store, apiUrl: fake.url });
+
+    const r = await spawnCli(
+      ["tasks", store, "--add", "--title", "Nameless probe"],
+      { cwd: store, home, env: { VIBEFLOW_API_URL: fake.url } },
+    );
+
+    expect(r.code).not.toBe(0);
+    expect(r.stdout).not.toContain("Task created");
+    expect(r.stdout).not.toMatch(/id:\s/);
+    expect(r.stdout).toContain("without a task id");
+    expect(localTaskFiles(store)).toEqual([]);
   });
 });

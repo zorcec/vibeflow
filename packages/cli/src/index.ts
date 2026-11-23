@@ -51,7 +51,7 @@ import { loadSettings } from "./core/settings.js";
 import type { Task, TaskComment, TaskStatus } from "./core/types.js";
 import { pickTaskFields } from "./core/operations/tasks.js";
 import { TASK_STATUSES, TASK_TYPE_VALUES } from "./core/types.js";
-import { getMode } from "./auth/mode.js";
+import { getMode, resolveCommandAccess } from "./auth/mode.js";
 import { runStdioMcp } from "./mcp/stdio.js";
 import {
   resolveReadBackend,
@@ -1684,9 +1684,28 @@ program
       },
     ) => {
       async function runTasks() {
+        // ONE access resolution per invocation (ADR-0005): a project that
+        // DECLARES a board it cannot authenticate to refuses here, before any
+        // branch — so a write is never reported as a local success and a read
+        // never answers "not found" for a task it could not reach (ticket
+        // 73cb9048). A project with no pointer stays local.
+        const access = await resolveCommandAccess(dir);
+        if (!access.ok) {
+          // One refusal spelling for both surfaces: the envelope writer
+          // already owns "json on stderr, ✗ + suggestion otherwise".
+          outputEnvelope({
+            ok: false,
+            code: access.code,
+            message: access.message,
+            suggestion: access.suggestion,
+            json: opts.json,
+          });
+          process.exitCode = ExitCode.AUTH;
+          return;
+        }
         handle.target = {
-          projectDir: resolve(dir),
-          mode: (await getMode(dir)) === "saas" ? "saas" : "local",
+          projectDir: access.projectDir,
+          mode: access.mode,
         };
         // Determine sub-command for telemetry before async operations
         const taskSubcommand = opts.add
@@ -3610,7 +3629,12 @@ program
                 saasAddGateInstructions = [...saasAddGate.instructions];
             }
             const saasCreated = await createSaasTask({
-              id: newId,
+              // NO client-minted id (ticket 73cb9048): identity is
+              // server-stamped on the v0 create contract, exactly as the
+              // hosted MCP create already behaves. Sending one let a route
+              // that echoes the body answer with an id the board never
+              // minted, and the printed "created" id then resolved to
+              // nothing. `newId` stays the DRY-RUN preview's placeholder.
               title: opts.title.trim(),
               description: opts.description?.trim(),
               status: saasStatus,
@@ -3635,14 +3659,22 @@ program
               // surface its code verbatim so CLI-online and hosted MCP
               // refuse identically instead of hiding behind
               // E_BACKEND_UNAVAILABLE ("retry" would never fix it).
-              const createServerCode = saasCreated.error.serverCode;
+              // INVALID_RESPONSE (ticket 73cb9048) is the same shape from
+              // the client side: a 2xx whose body names no task is a
+              // refusal, never a `✓ Task created` line with an id nothing
+              // can resolve.
+              const createErr = saasCreated.error;
+              const createRefusalCode =
+                createErr.serverCode ??
+                (createErr.code === "INVALID_RESPONSE"
+                  ? createErr.code
+                  : undefined);
               // Ticket 5094958f: the generic branch used to discard the
               // HTTP status (and any non-JSON body head) — a proxy 502 HTML
               // page or an empty body surfaced as a bare "Failed to create"
               // with nothing to diagnose. Name status + path + head here;
               // a true transport failure (no status) keeps the old message
               // and the connection hint verbatim.
-              const createErr = saasCreated.error;
               const createWhere =
                 typeof createErr.status === "number"
                   ? `HTTP ${createErr.status}${createErr.path ? ` ${createErr.path}` : ""}`
@@ -3665,9 +3697,9 @@ program
               if (opts.json) {
                 outputEnvelope({
                   ok: false,
-                  ...(createServerCode
+                  ...(createRefusalCode
                     ? {
-                        code: createServerCode,
+                        code: createRefusalCode,
                         message: saasCreated.error.message,
                       }
                     : {
@@ -3676,7 +3708,7 @@ program
                       }),
                   json: opts.json,
                 });
-              } else if (createServerCode) {
+              } else if (createRefusalCode) {
                 console.log(chalk.red(`✗ ${saasCreated.error.message}`));
               } else {
                 console.log(chalk.red(`✗ ${createGenericMessage}`));

@@ -18,8 +18,12 @@ One `~/.vibeflow/token` flipped every project on the machine online. Resolution 
 
 Reversing this needs a global read plus deleting the pins below, in the same commit. The legacy token stays retired: noticed, never read.
 
+"Refuses" is a property of the COMMAND too, not only of the resolver: a CLI command resolves its access once per invocation (`auth/mode.ts:resolveCommandAccess`) and stops with `NOT_CONNECTED` before any branch runs. `getMode()` alone folds the unlinked state into "local", and a command that trusted it printed `✓ Task created` for a write that landed in the local store of a project that declares itself online (ticket 73cb9048).
+
 ## Pins
 
 - Pins: `packages/cli/tests/unit/auth/project-auth.test.ts`
+- Pins: `packages/cli/tests/unit/auth/mode.test.ts`
 - Pins: `packages/cli/tests/unit/mcp/session-retarget.test.ts`
+- Pins: `packages/cli/tests/e2e/tasks-online-write-effects.test.ts`
 - Pins: `scripts/check-no-credentials.mjs`

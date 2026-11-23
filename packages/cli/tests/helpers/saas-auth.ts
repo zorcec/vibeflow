@@ -47,6 +47,13 @@ export interface SaaSModeOptions {
   workspaceId?: string;
   /** Account label stored beside the token (never asserted, for realism). */
   account?: string;
+  /**
+   * Write ONLY the project pointer, no credential — the ADR-0005
+   * "unlinked" state: a project that declares a board this CLI cannot
+   * authenticate to. Used by the refusal tests (a write must never fall
+   * back to the local store from this state).
+   */
+  omitCredential?: boolean;
 }
 
 /**
@@ -61,20 +68,22 @@ export function setupSaaSMode(opts: SaaSModeOptions): void {
   const account = opts.account ?? "e2e@example.com";
   const key = normalizeApiUrl(apiUrl);
 
-  mkdirSync(join(home, ".vibeflow"), { recursive: true });
-  const credPath = join(home, ".vibeflow", "credentials.json");
-  let all: Record<string, unknown> = {};
-  if (existsSync(credPath)) {
-    all = JSON.parse(readFileSync(credPath, "utf-8")) as Record<string, unknown>;
+  if (opts.omitCredential !== true) {
+    mkdirSync(join(home, ".vibeflow"), { recursive: true });
+    const credPath = join(home, ".vibeflow", "credentials.json");
+    let all: Record<string, unknown> = {};
+    if (existsSync(credPath)) {
+      all = JSON.parse(readFileSync(credPath, "utf-8")) as Record<string, unknown>;
+    }
+    all[key] = {
+      token,
+      workspaceId,
+      account,
+      updatedAt: new Date().toISOString(),
+    };
+    writeFileSync(credPath, JSON.stringify(all, null, 2), { mode: 0o600 });
+    chmodSync(credPath, 0o600);
   }
-  all[key] = {
-    token,
-    workspaceId,
-    account,
-    updatedAt: new Date().toISOString(),
-  };
-  writeFileSync(credPath, JSON.stringify(all, null, 2), { mode: 0o600 });
-  chmodSync(credPath, 0o600);
 
   mkdirSync(join(store, ".vibeflow"), { recursive: true });
   const pointerPath = join(store, ".vibeflow", "settings.json");

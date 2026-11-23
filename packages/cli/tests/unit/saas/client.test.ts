@@ -1296,6 +1296,35 @@ describe("createSaasTask", () => {
     }
   });
 
+  // Ticket 73cb9048: a 2xx only means "created" when the body NAMES the
+  // record. An acceptance envelope used to be read as a created task, so the
+  // CLI printed `✓ Task created` with an id (`undefined`, or one the board
+  // never minted) that resolved to nothing.
+  it("refuses a 2xx whose body names no created record", async () => {
+    mockFetch({ ok: true });
+    const result = await createSaasTask({
+      projectDir: "/test-project",
+      title: "New Task",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("INVALID_RESPONSE");
+      expect(result.error.message).toContain("without a task id");
+      expect(result.error.message).toContain("may exist on the board");
+      expect(result.error.path).toBe("/api/v0/tasks");
+    }
+  });
+
+  it("refuses a 2xx task row with an empty id", async () => {
+    mockFetch({ ...SAMPLE_TASK, id: "" });
+    const result = await createSaasTask({
+      projectDir: "/test-project",
+      title: "New Task",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("INVALID_RESPONSE");
+  });
+
   it("leaves serverCode absent on transport failures", async () => {
     mockFetch(null, false);
     const result = await createSaasTask({ projectDir: "/test-project", title: "New Task" });
