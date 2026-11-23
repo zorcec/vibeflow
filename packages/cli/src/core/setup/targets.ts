@@ -318,7 +318,8 @@ const CLI_ARGS = ["notifications", "--follow", "--json"];
 // one word a reader needs is "status". Display-only filtering — the event
 // payload stays untouched, so nothing is hidden from a consumer that reads the
 // JSON itself.
-const NOISE_KEYS = ["updatedAt", "sortKey", "rev", "author", "verified", "assigneeOrigin"];
+const NOISE_KEYS = ["updatedAt", "sortKey", "rev", "author", "verified",
+  "assigneeOrigin", "attentionReasonId", "assigneeId"];
 
 function describeEvent(event) {
   // 'changed' names the fields a write touched; events without it (comment,
