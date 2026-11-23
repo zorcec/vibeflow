@@ -115,7 +115,12 @@ export function submitTask(
   }
   return fetch(fetchUrl, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    // The SaaS overlay answers 401 to a create that presents neither a
+    // same-origin session cookie (a foreign embed has none) nor the board key
+    // — `authorizeOverlayRequest` accepts the key for `tasks:write` exactly
+    // like PATCH/DELETE, which already send it via `mutationHeaders`. Omitting
+    // it here made every annotation on a customer page vanish silently.
+    headers: mutationHeaders(),
     body: JSON.stringify(
       buildTaskPayload({
         selector,
