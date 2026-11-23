@@ -91,7 +91,7 @@ export interface FetchRefusal {
 }
 
 /** The project's own access to its board: no token, no online read. */
-interface OnlineAccess {
+export interface OnlineAccess {
   token: string;
   /** The board the feed is read from (null = the server's own default). */
   boardId: string | null;
@@ -103,7 +103,7 @@ interface OnlineAccess {
  * credential simply has no access (and a failed board-scope lookup only means
  * the request falls back to the credential's own workspace id).
  */
-async function resolveOnlineAccess(
+export async function resolveOnlineAccess(
   projectDir: string,
 ): Promise<OnlineAccess | null> {
   try {

@@ -5,6 +5,11 @@ import {
   notificationsEnabled,
   readNotifications,
 } from "../core/notifications.js";
+import {
+  listSubscribers,
+  registerSubscriber,
+  removeSubscriber,
+} from "../core/subscribers.js";
 import { assertRemovableTag, removeTagFromAllTasks } from "../core/remove-tag.js";
 import { getTaskRoot } from "../core/task-listing.js";
 import {
@@ -395,6 +400,59 @@ function registerTaskApi(
         ...(limit !== undefined && !Number.isNaN(limit) ? { limit } : {}),
       }),
     );
+  });
+
+  // Watching badge (ticket cgor65lmpv31cib1ef9zce5m): the same three
+  // subscriber routes the hosted board serves under `/api/v0`. Registration
+  // is explicit — `vibeflow notifications --follow` POSTs and heartbeats —
+  // never inferred from a socket. In-memory, TTL-bounded, board-scoped; the
+  // hosted twin documents the same trade
+  // (packages/web/src/server/notifications/subscribers.ts).
+  app.get("/api/notifications/subscribers", (_req, res) => {
+    res.json(listSubscribers(projectDir));
+  });
+
+  app.post("/api/notifications/subscribers", (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const subscriberId =
+      typeof body.subscriberId === "string" ? body.subscriberId.trim() : "";
+    if (
+      subscriberId === "" ||
+      subscriberId.length > 128 ||
+      /[\s\x00-\x1f\x7f]/.test(subscriberId)
+    ) {
+      res.status(400).json({
+        error:
+          "subscriberId must be a single non-empty token (max 128 characters)",
+        code: "INVALID_SUBSCRIBER",
+      });
+      return;
+    }
+    const rawAgent = typeof body.agent === "string" ? body.agent.trim() : "";
+    registerSubscriber(projectDir, {
+      subscriberId,
+      agent: rawAgent === "" ? "agent" : rawAgent.slice(0, 64),
+      // No account exists on the local board: one named row, never a guess.
+      user: "local",
+    });
+    res.json({ subscriberId, total: listSubscribers(projectDir).total });
+  });
+
+  app.delete("/api/notifications/subscribers/:subscriberId", (req, res) => {
+    // `:subscriberId`, not `:id`: the task-id path-traversal guard is
+    // registered on `app.param("id")` for every /api/tasks/:id route and
+    // would 400 a subscriber token before this handler runs.
+    const subscriberId = String(req.params.subscriberId ?? "").trim();
+    if (subscriberId === "") {
+      res
+        .status(400)
+        .json({ error: "subscriberId is required", code: "INVALID_SUBSCRIBER" });
+      return;
+    }
+    // Idempotent: an unknown/expired id is a clean `removed:false`, never a
+    // 404 that a departing follower could mistake for a failed unregister.
+    const removed = removeSubscriber(projectDir, subscriberId);
+    res.json({ removed, total: listSubscribers(projectDir).total });
   });
 
   app.get("/api/tasks", (req, res) => {

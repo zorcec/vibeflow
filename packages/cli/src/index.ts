@@ -36,6 +36,13 @@ import {
   type NotificationTarget,
 } from "./core/notifications-fetch.js";
 import {
+  SUBSCRIBER_HEARTBEAT_MS,
+  createSubscriberIdentity,
+  registerNotificationSubscriber,
+  unregisterNotificationSubscriber,
+  type SubscriberCallResult,
+} from "./core/notifications-subscribers.js";
+import {
   attentionClaimAlert,
   ATTENTION_NOTICE_CODE,
 } from "./core/attention.js";
@@ -7925,6 +7932,13 @@ program
  * event's JSON to its stdin as one line. SIGINT ends the child's stdin and
  * exits 0 with no stack trace.
  *
+ * It is also a SUBSCRIBER (ticket cgor65lmpv31cib1ef9zce5m): once the backend
+ * is resolved, the follower registers with the board's subscriber registry,
+ * heartbeats every {@link SUBSCRIBER_HEARTBEAT_MS}, and unregisters on the way
+ * out (SIGINT/SIGTERM and a failed feed read) so the "Watching" badge never
+ * shows a ghost. Registration is a SIDE call: its diagnostics go to stderr,
+ * which keeps `--json` stdout pure, and a failure never stops the feed.
+ *
  * The refusals are returned, not thrown: the caller owns the envelope and the
  * exit code, exactly like the one-shot read.
  */
@@ -7944,23 +7958,99 @@ async function followNotifications(
     opts.exec === undefined
       ? null
       : spawn(opts.exec, { shell: true, stdio: ["pipe", "inherit", "inherit"] });
-  const stop = (): void => {
+
+  const subscriber = createSubscriberIdentity();
+  let registeredTarget: NotificationTarget | null = null;
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+  let subscriberFailureReported = false;
+
+  const reportSubscriberFailure = (result: SubscriberCallResult): void => {
+    if (result.ok) {
+      subscriberFailureReported = false;
+      return;
+    }
+    // A local board that is not running is a normal state, not a crash: one
+    // dim line, no repeat every heartbeat, and the feed keeps going.
+    if (subscriberFailureReported) return;
+    subscriberFailureReported = true;
+    console.error(chalk.dim(`! watching: ${result.message}`));
+  };
+
+  const stopHeartbeat = (): void => {
+    if (heartbeat !== null) {
+      clearInterval(heartbeat);
+      heartbeat = null;
+    }
+  };
+
+  let stopping = false;
+  // The last register/heartbeat in flight. `stop()` awaits it BEFORE the
+  // unregister, so a heartbeat that raced the signal cannot land after the
+  // delete and leave a ghost for a whole TTL.
+  let pendingRegistration: Promise<SubscriberCallResult> | null = null;
+  const stop = async (code: number): Promise<void> => {
+    if (stopping) return;
+    stopping = true;
+    stopHeartbeat();
     try {
       child?.stdin?.end();
     } catch {
       /* the child is already gone — nothing to flush into */
     }
-    process.exit(0);
+    if (pendingRegistration !== null) {
+      await pendingRegistration;
+    }
+    if (registeredTarget !== null) {
+      // Bounded: the user asked to stop; a dead board must not hold Ctrl-C.
+      await unregisterNotificationSubscriber(
+        projectDir,
+        registeredTarget,
+        subscriber.subscriberId,
+      );
+    }
+    process.exit(code);
   };
+
+  const onSignal = (): void => {
+    void stop(0);
+  };
+
   if (child) {
     child.on("error", (err: Error) => {
       console.error(chalk.red(`✗ --exec failed to start: ${err.message}`));
       process.exit(ExitCode.GENERAL);
     });
-    process.once("SIGINT", stop);
-  } else {
-    process.once("SIGINT", stop);
   }
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
+
+  const sendRegistration = (nextTarget: NotificationTarget): void => {
+    // A signal may already be unwinding; never start a new registration into
+    // the delete that is about to run.
+    if (stopping) return;
+    const call = registerNotificationSubscriber(
+      projectDir,
+      nextTarget,
+      subscriber,
+    );
+    pendingRegistration = call;
+    void call.then(reportSubscriberFailure);
+  };
+
+  const startWatching = (nextTarget: NotificationTarget): void => {
+    if (stopping) return;
+    registeredTarget = nextTarget;
+    sendRegistration(nextTarget);
+    if (heartbeat === null) {
+      heartbeat = setInterval(() => {
+        if (registeredTarget === null) return;
+        sendRegistration(registeredTarget);
+      }, SUBSCRIBER_HEARTBEAT_MS);
+      // The poll loop already keeps the process alive; the heartbeat must
+      // never be the reason a stopped follower cannot exit.
+      heartbeat.unref?.();
+    }
+  };
 
   const emitted = new Set<unknown>();
   let cursor = opts.since;
@@ -7972,6 +8062,15 @@ async function followNotifications(
       ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
     });
     if (!result.ok) {
+      stopHeartbeat();
+      if (pendingRegistration !== null) await pendingRegistration;
+      if (registeredTarget !== null) {
+        await unregisterNotificationSubscriber(
+          projectDir,
+          registeredTarget,
+          subscriber.subscriberId,
+        );
+      }
       try {
         child?.stdin?.end();
       } catch {
@@ -7980,6 +8079,7 @@ async function followNotifications(
       return { ok: false, code: result.code, message: result.message };
     }
     target = result.target;
+    if (registeredTarget !== target) startWatching(target);
     for (const event of result.notifications) {
       const id = (event as { id?: unknown }).id;
       const key = id ?? JSON.stringify(event);

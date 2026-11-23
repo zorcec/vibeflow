@@ -3,7 +3,15 @@ import { Search, Settings, X, ChevronRight, Menu } from "lucide-react";
 import { VibeflowIcon } from "../../VibeflowIcon";
 import { Button, Input } from "../../primitives";
 import { HeaderActionButton } from "./shared/HeaderActionButton";
+import { WatchingBadge } from "./WatchingBadge";
 import { getTagColors } from "../tag-colors";
+
+interface WatchingConfig {
+  /** Board-specific subscribers route (local vs hosted differ). */
+  endpoint: string;
+  /** Hosted board: `X-Vibeflow-Scope`; local board: none. */
+  headers?: Record<string, string>;
+}
 
 interface Props {
   projectName: string;
@@ -19,6 +27,8 @@ interface Props {
   onSearchChange: (q: string) => void;
   onSettings: () => void;
   extraActions?: React.ReactNode;
+  /** Show the Watching badge when the host provides the registry route. */
+  watching?: WatchingConfig;
   taskSummary: string;
 }
 
@@ -36,6 +46,7 @@ export function Header({
   onSearchChange,
   onSettings,
   extraActions,
+  watching,
   taskSummary,
 }: Props) {
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
@@ -398,6 +409,15 @@ export function Header({
 
       {/* Actions */}
       <div className="kb-header-actions flex items-center gap-2 flex-shrink-0">
+        {/* The Watching badge lives OUTSIDE the collapsing desktop-actions
+            group: it must stay visible (and unclipped) at <=767px, where the
+            rest of the actions move into the menu. */}
+        {watching && (
+          <WatchingBadge
+            endpoint={watching.endpoint}
+            headers={watching.headers}
+          />
+        )}
         <div
           // `id` is what aria-controls on the trigger points at. It was missing,
           // so the reference dangled in every state (ticket 45a8e57c).

@@ -439,6 +439,9 @@ export const LOCAL_ONLY_ROUTES: LocalOnlyRoute[] = [
   { method: "DELETE", path: "/api/mcp", reason: "MCP session teardown — local transport detail, classified under mcp-get/mcp-post." },
   { method: "POST", path: "/api/tasks/remove-tag", reason: "Kanban Tags-filter bulk removal — board-local UI mutation (confirm, mutate, refresh); the portable mutation stays PATCH /api/tasks/:id — not v0." },
   { method: "GET", path: "/api/notifications", reason: "Local notification feed for on-machine agents (ticket ecba6126) — the portable contract is v0 GET /api/v0/notifications with the identical body; this route reads the project's own .vibeflow/notifications.jsonl, which does not exist on the hosted side." },
+  { method: "GET", path: "/api/notifications/subscribers", reason: "Local board's live subscriber roster (watching badge, ticket cgor65lm) — the portable facts are v0 GET /api/v0/notifications/subscribers; this one reads the local board process." },
+  { method: "POST", path: "/api/notifications/subscribers", reason: "Local follower registration/heartbeat (watching badge) — v0 POST /api/v0/notifications/subscribers is the portable twin." },
+  { method: "DELETE", path: "/api/notifications/subscribers/:subscriberId", reason: "Local follower deregistration (watching badge) — v0 DELETE /api/v0/notifications/subscribers/:subscriberId is the portable twin." },
 ];
 
 /** Non-API route prefixes carved out of the duplication guard, with reasons. */

@@ -1837,6 +1837,9 @@ function BoardApp() {
         taskSummary={taskSummary}
         onSearchChange={setSearchInput}
         onSettings={() => setSettingsOpen(true)}
+        // Watching badge (ticket cgor65lmpv31cib1ef9zce5m): the local board's
+        // same-origin registry. No headers — the local server has no auth.
+        watching={{ endpoint: "/api/notifications/subscribers" }}
         extraActions={
           <>
             <HeaderActionButton

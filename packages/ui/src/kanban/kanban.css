@@ -2239,6 +2239,12 @@ body.proto-resizing-panel {
     position: relative;
     margin-left: auto;
   }
+  /* The Watching pill keeps its count but drops the word on a phone: the
+     header already carries identity + the menu trigger and must not wrap or
+     push the actions (ticket cgor65lmpv31cib1ef9zce5m). */
+  .kb-watching-label {
+    display: none;
+  }
   .kb-header-desktop-actions {
     display: none !important;
   }

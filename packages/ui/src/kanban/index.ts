@@ -109,6 +109,11 @@ export type {
 export { KanbanBoard, COLUMNS, doneHiddenCount } from "./components/KanbanBoard";
 export { KanbanListView } from "./components/KanbanListView";
 export { Header as KanbanHeader } from "./components/Header";
+export {
+  WatchingBadge,
+  WATCHING_POLL_INTERVAL_MS,
+} from "./components/WatchingBadge";
+export type { WatchingSnapshot } from "./components/WatchingBadge";
 export { DetailPanel } from "./components/DetailPanel";
 export {
   TaskCard as KanbanTaskCard,
