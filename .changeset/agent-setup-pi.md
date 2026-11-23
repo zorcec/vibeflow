@@ -13,7 +13,9 @@ vibeflow setup claude|codex [--check] [--json]
 - `setup pi` writes a self-contained pi extension to
   `~/.pi/agent/extensions/vibeflow-notifications.js` (`--project` installs into
   `.pi/extensions/` instead). It follows `vibeflow notifications --follow
-  --json --local` and injects one line per task event —
+  --json` — the backend resolves exactly as it does in the terminal (online for
+  a linked project, local otherwise; forcing `--local` made it silent in every
+  online project) — and injects one line per task event —
   `task <taskId> <type> (<changed>)` — so an agent notices work that landed
   while it was busy and fetches the detail itself with `vibeflow tasks --get
   <id>`. `/vibeflow-status` reports the connection, the last event, and the

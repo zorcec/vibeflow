@@ -292,7 +292,12 @@ import { spawn } from "node:child_process";
 const CUSTOM_TYPE = "vibeflow-notifications";
 // Resolved when this file was installed; null means "vibeflow" on PATH.
 const CLI_ENTRY = ${JSON.stringify(cliEntry)};
-const CLI_ARGS = ["notifications", "--follow", "--json", "--local"];
+// NO --local: the CLI already resolves the backend per project (online
+// when the project is linked, local otherwise), and forcing --local made
+// the extension read an empty \`.vibeflow/notifications.jsonl\` in every
+// ONLINE project — connected, silent, useless. Let the same resolver the
+// terminal uses pick the feed.
+const CLI_ARGS = ["notifications", "--follow", "--json"];
 
 function describeEvent(event) {
   const changed =
@@ -372,7 +377,7 @@ export default function (pi) {
       warn(
         "vibeflow notifications could not start (" +
           errorText(error) +
-          ") — run \`vibeflow notifications --follow --json --local\` in a terminal to check.",
+          ") — run \`vibeflow notifications --follow --json\` in a terminal to check.",
       );
       return;
     }

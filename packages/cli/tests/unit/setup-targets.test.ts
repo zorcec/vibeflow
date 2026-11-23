@@ -269,7 +269,7 @@ describe("renderPiExtension", () => {
     expect(source).toContain('pi.registerCommand("vibeflow-status"');
     expect(source).toContain('pi.on("session_start"');
     expect(source).toContain('pi.on("session_shutdown"');
-    expect(source).toContain('"--follow", "--json", "--local"');
+    expect(source).toContain('"--follow", "--json"');
     // Self-contained: no import other than a Node builtin.
     const imports = [...source.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
     expect(imports).toEqual(["node:child_process"]);
