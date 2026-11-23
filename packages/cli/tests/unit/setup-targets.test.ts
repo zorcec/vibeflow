@@ -283,6 +283,11 @@ describe("renderPiExtension", () => {
     expect(source).toContain("VIBEFLOW_NOTIFY");
     expect(source).toContain("let enabled = process.env.VIBEFLOW_NOTIFY !== \"0\"");
     expect(source).toMatch(/if \(!enabled \|\| child !== null\) return;/);
+    // Bookkeeping-only updates are filtered in the extension too, so the feed
+    // stays quiet on any deployed backend (the server filter lands with the
+    // next deploy; this one lands with a /reload).
+    expect(source).toContain('const METADATA_ONLY = ["updatedAt", "sortKey", "rev"]');
+    expect(source).toMatch(/keys\.every\(\(key\) => METADATA_ONLY\.includes\(key\)\)/);
     // Self-contained: only Node builtins, nothing to resolve at install time.
     // `node:fs` is the existence check on the pinned project dir, so a deleted
     // install target falls back to cwd instead of breaking the extension.

@@ -380,6 +380,21 @@ export default function (pi) {
     }
     if (event === null || typeof event !== "object") return;
     if (typeof event.taskId !== "string" || typeof event.type !== "string") return;
+    // Bookkeeping-only updates are not news: a comment lands as task.comment
+    // AND as a task.update carrying just updatedAt, and a reorder carries only
+    // sortKey. Filtering here (not only on the server) is deliberate — it makes
+    // the feed quiet on any deployed backend version, not just the next one.
+    const METADATA_ONLY = ["updatedAt", "sortKey", "rev"];
+    if (event.type === "task.update") {
+      const keys = Array.isArray(event.changed)
+        ? event.changed
+        : event.to && typeof event.to === "object"
+          ? Object.keys(event.to)
+          : [];
+      if (keys.length > 0 && keys.every((key) => METADATA_ONLY.includes(key))) {
+        return;
+      }
+    }
     eventsSeen += 1;
     if (typeof event.ts === "string") lastEventTs = event.ts;
     pi.sendMessage(
