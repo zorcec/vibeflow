@@ -288,6 +288,16 @@ describe("renderPiExtension", () => {
     // next deploy; this one lands with a /reload).
     expect(source).toContain('const METADATA_ONLY = ["updatedAt", "sortKey", "rev"]');
     expect(source).toMatch(/keys\.every\(\(key\) => METADATA_ONLY\.includes\(key\)\)/);
+    // Substance without fattening the payload: one CLI read per comment/create
+    // event, and the update line summarised from the event's own `to` values.
+    expect(source).toContain("const EXCERPT_CHARS = 70");
+    expect(source).toContain('args.push("--get", taskId, "--json")');
+    expect(source).toContain("function describeWith(event, detail)");
+    expect(source).toContain("function formalues(event)");
+    // The read must never outlive the feed: bounded, and it must not emit
+    // notifications of its own (VIBEFLOW_EVENTS=0 on the child).
+    expect(source).toContain("}, 5000);");
+    expect(source).toContain("VIBEFLOW_EVENTS: \"0\"");
     // Self-contained: only Node builtins, nothing to resolve at install time.
     // `node:fs` is the existence check on the pinned project dir, so a deleted
     // install target falls back to cwd instead of breaking the extension.
