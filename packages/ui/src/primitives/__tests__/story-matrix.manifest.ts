@@ -360,6 +360,15 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     ],
   },
   {
+    component: "WatchingBadge",
+    storyFile: "stories/kanban/watching-badge.stories.tsx",
+    title: "Design System/Kanban/WatchingBadge",
+    stories: [
+      { name: "TwoAgents", covers: "renders the live count from the roster route; structural axe clean" },
+      { name: "NoneYet", covers: "renders nothing (or 0) before the first successful read — never a wrong count" },
+    ],
+  },
+  {
     component: "AttentionBadge",
     storyFile: "stories/kanban/attention-badge.stories.tsx",
     title: "Design System/Kanban/AttentionBadge",
