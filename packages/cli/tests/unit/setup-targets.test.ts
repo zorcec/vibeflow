@@ -276,6 +276,13 @@ describe("renderPiExtension", () => {
     expect(source).toContain("INSTALL_PROJECT");
     expect(source).toContain("VIBEFLOW_NOTIFY_PROJECT");
     expect(source).toMatch(/spawn\(command, args, \{[^}]*cwd/);
+    // The user must be able to switch the feed off without editing this file:
+    // two commands plus an environment opt-out.
+    expect(source).toContain('registerCommand("vibeflow-off"');
+    expect(source).toContain('registerCommand("vibeflow-on"');
+    expect(source).toContain("VIBEFLOW_NOTIFY");
+    expect(source).toContain("let enabled = process.env.VIBEFLOW_NOTIFY !== \"0\"");
+    expect(source).toMatch(/if \(!enabled \|\| child !== null\) return;/);
     // Self-contained: only Node builtins, nothing to resolve at install time.
     // `node:fs` is the existence check on the pinned project dir, so a deleted
     // install target falls back to cwd instead of breaking the extension.

@@ -314,10 +314,15 @@ const INSTALL_PROJECT = ${JSON.stringify(projectDir)};
 const CLI_ARGS = ["notifications", "--follow", "--json"];
 
 function describeEvent(event) {
+  // 'changed' names the fields a write touched; events without it (comment,
+  // claim, create) carry the new values instead, so show those keys rather
+  // than a bare "-" that told the reader nothing.
   const changed =
     Array.isArray(event.changed) && event.changed.length > 0
       ? event.changed.join(",")
-      : "-";
+      : event.to && typeof event.to === "object"
+        ? Object.keys(event.to).join(",") || "-"
+        : "-";
   return "task " + event.taskId + " " + event.type + " (" + changed + ")";
 }
 
@@ -327,6 +332,10 @@ function errorText(error) {
 }
 
 export default function (pi) {
+  // User kill switch. VIBEFLOW_NOTIFY=0 in pi's environment means "do not
+  // start"; the commands below change it for the session either way, so a
+  // user who finds the feed noisy can silence it without editing this file.
+  let enabled = process.env.VIBEFLOW_NOTIFY !== "0";
   let child = null;
   let connected = false;
   let lastEventTs = null;
@@ -340,6 +349,7 @@ export default function (pi) {
       "last event: " + (lastEventTs === null ? "none" : lastEventTs),
       "events seen this session: " + eventsSeen,
     ];
+    if (!enabled) parts.push("switched off (/vibeflow-on to resume)");
     if (failure !== null) parts.push("problem: " + failure);
     return parts.join(" · ");
   }
@@ -379,7 +389,7 @@ export default function (pi) {
   }
 
   function start() {
-    if (child !== null) return;
+    if (!enabled || child !== null) return;
     const command = CLI_ENTRY === null ? "vibeflow" : process.execPath;
     const args = CLI_ENTRY === null ? CLI_ARGS.slice() : [CLI_ENTRY].concat(CLI_ARGS);
     // Skip the replay of the newest page: this session starts now.
@@ -447,6 +457,35 @@ export default function (pi) {
       // already gone
     }
   }
+
+  pi.registerCommand("vibeflow-off", {
+    description: "Stop vibeflow task notifications for this session",
+    handler: async function (_args, ctx) {
+      const was = child !== null;
+      enabled = false;
+      stop();
+      ctx.ui.notify(
+        was
+          ? "vibeflow notifications: off (no events until /vibeflow-on)"
+          : "vibeflow notifications were already off",
+        "info",
+      );
+    },
+  });
+
+  pi.registerCommand("vibeflow-on", {
+    description: "Resume vibeflow task notifications for this session",
+    handler: async function (_args, ctx) {
+      enabled = true;
+      start();
+      ctx.ui.notify(
+        child === null
+          ? "vibeflow notifications: on, but the follow loop did not start — see /vibeflow-status"
+          : "vibeflow notifications: on",
+        child === null ? "warning" : "info",
+      );
+    },
+  });
 
   pi.registerCommand("vibeflow-status", {
     description:

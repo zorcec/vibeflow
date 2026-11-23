@@ -23,6 +23,10 @@ vibeflow setup claude|codex [--check] [--json]
   while it was busy and fetches the detail itself with `vibeflow tasks --get
   <id>`. `/vibeflow-status` reports the connection, the last event, and the
   events seen this session; `run /reload in pi` picks up a fresh install.
+- The feed is **switchable without editing any file**: `/vibeflow-off` stops it
+  for the session, `/vibeflow-on` resumes, and `VIBEFLOW_NOTIFY=0` in pi's
+  environment keeps it off from the start. `vibeflow setup pi --uninstall`
+  removes the integration (idempotent; a missing file is not an error).
 - Every installed file carries a `// vibeflow-cli: <version>` first line, so
   `setup pi --check` answers "is this extension from the CLI I am running?"
   and exits non-zero when it is missing or stale. `--json` reports the same

@@ -124,7 +124,7 @@ import { saasFailure, saasReadErrorMessage } from "./saas/failure.js";
 // onto the local Task shape for after-hook `task` snapshots.
 import { toLocalTask } from "./core/remote-task-store.js";
 import { readProjectPointer } from "./auth/project-pointer.js";
-import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
 import { homedir } from "node:os";
 import chalk from "chalk";
@@ -8230,6 +8230,7 @@ program
     "Report whether the installed integration matches this CLI version (exit 1 when it does not)",
   )
   .option("--dry-run", "Report what would be written and write nothing")
+  .option("--uninstall", "Remove the installed integration for this target")
   .option("--json", "Emit the result as JSON on stdout")
   .action(
     toolAction(
@@ -8242,6 +8243,7 @@ program
           force?: boolean;
           check?: boolean;
           dryRun?: boolean;
+          uninstall?: boolean;
           json?: boolean;
         },
       ) => {
@@ -8322,6 +8324,52 @@ program
           return outcome;
         }
         const detected = target.detect(home);
+
+        // Uninstall: the only way to stop an agent integration was deleting a
+        // file from a dot-directory nobody remembers. Idempotent, and it says
+        // what it did (a missing file is not an error).
+        if (opts.uninstall === true) {
+          const state = target.status(scope);
+          if (state.installed !== true || state.path === undefined) {
+            if (opts.json === true) {
+              process.stdout.write(
+                JSON.stringify(
+                  { ok: true, target: target.id, removed: false, path: null },
+                  null,
+                  2,
+                ) + "\n",
+              );
+            } else {
+              console.log(
+                chalk.dim(`  ${target.id}: nothing installed — nothing to remove`),
+              );
+            }
+            return outcome;
+          }
+          if (opts.dryRun !== true) rmSync(state.path, { force: true });
+          if (opts.json === true) {
+            process.stdout.write(
+              JSON.stringify(
+                {
+                  ok: true,
+                  target: target.id,
+                  removed: opts.dryRun !== true,
+                  path: state.path,
+                  ...(opts.dryRun === true ? { dryRun: true } : {}),
+                },
+                null,
+                2,
+              ) + "\n",
+            );
+          } else {
+            console.log(
+              chalk.green(
+                `\u2713 ${target.id} integration ${opts.dryRun === true ? "would be" : ""} removed`,
+              ) + chalk.dim(` (${state.path})`),
+            );
+          }
+          return outcome;
+        }
 
         if (opts.check === true) {
           if (target.support === "planned") {
