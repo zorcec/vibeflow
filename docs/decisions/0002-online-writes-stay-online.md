@@ -4,6 +4,7 @@
 - Date: 2026-10-25
 - Governed: `packages/cli/src/core/remote-task-store.ts`
 - Governed: `packages/cli/src/saas/pull-archive.ts`
+- Reviewed: 2026-11-23 (test-only: an e2e now pins the online read contract against a local HTTP double — decision unchanged)
 - Reviewed: 2026-11-08 (b02d154 routes comment text through one `projectCommentText` helper inside the same adapter and its SaaS client — still one remote write path per call and no local-store fallback; decision unchanged)
 - Decided by: owner (ticket 3bb51549f9ed825bfc8612ac181125)
 

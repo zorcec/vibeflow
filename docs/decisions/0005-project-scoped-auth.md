@@ -3,6 +3,7 @@
 - Status: accepted
 - Date: 2026-10-25
 - Governed: `packages/cli/src/auth/`
+- Reviewed: 2026-11-23 (re-reviewed with the 73cb9048 fix (refusal is a property of the command) and its online-read e2e — decision unchanged)
 - Reviewed: 2026-11-09
 - Decided by: owner (ticket a93bfdc8c858ed0aa5cc60aa56e328)
 
