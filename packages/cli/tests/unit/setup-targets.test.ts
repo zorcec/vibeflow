@@ -298,6 +298,17 @@ describe("renderPiExtension", () => {
     // notifications of its own (VIBEFLOW_EVENTS=0 on the child).
     expect(source).toContain("}, 5000);");
     expect(source).toContain("VIBEFLOW_EVENTS: \"0\"");
+    // Standing instruction: how to react to a comment, in as few words as
+    // possible, delivered through the system prompt (no turn burned).
+    expect(source).toContain("const INSTRUCTIONS = [");
+    expect(source).toContain("A task.comment is a request");
+    expect(source).toContain("answer ON THAT TASK with vibeflow tasks --edit");
+    // The generated source is a JS STRING: the reply template must survive as
+    // escaped quotes, or it silently truncates at --comment (node --check still
+    // passes, because \"<reply>\" parses as a comparison).
+    expect(source).toMatch(/--comment \\"<reply>\\"/);
+    expect(source).toContain('pi.on("before_agent_start"');
+    expect(source).toContain("systemPrompt: base");
     // Self-contained: only Node builtins, nothing to resolve at install time.
     // `node:fs` is the existence check on the pinned project dir, so a deleted
     // install target falls back to cwd instead of breaking the extension.

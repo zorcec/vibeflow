@@ -300,6 +300,15 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 
 const CUSTOM_TYPE = "vibeflow-notifications";
+
+// What the agent needs to DO with a line, in as few words as possible. It
+// rides the system prompt (before_agent_start) instead of a chat message:
+// standing rule, no turn burned, and it survives a long session.
+const INSTRUCTIONS = [
+  "Vibeflow notifications arrive as: task <id> <type> (<changed>, or the value).",
+  "A task.comment is a request: read it (vibeflow tasks --get <id>) and answer ON THAT TASK with vibeflow tasks --edit <id> --comment \\"<reply>\\" — briefly, and never answer your own comments.",
+  "Any other event: act only if it touches work you own.",
+].join("\\n");
 // Resolved when this file was installed; null means "vibeflow" on PATH.
 const CLI_ENTRY = ${JSON.stringify(cliEntry)};
 // The project this integration was installed for. Without it the child runs in
@@ -600,6 +609,15 @@ export default function (pi) {
     handler: async function (_args, ctx) {
       ctx.ui.notify(statusLine(), connected ? "info" : "warning");
     },
+  });
+
+  // Standing instruction (docs: before_agent_start may chain the prompt; the
+  // result is diffed against what the model already has, so this costs one
+  // system message patch, not a turn).
+  pi.on("before_agent_start", function (event) {
+    if (!enabled) return undefined;
+    const base = event && typeof event.systemPrompt === "string" ? event.systemPrompt : "";
+    return { systemPrompt: base + "\\n\\n" + INSTRUCTIONS };
   });
 
   pi.on("session_start", function () {
