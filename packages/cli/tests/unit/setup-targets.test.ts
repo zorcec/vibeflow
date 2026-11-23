@@ -307,6 +307,10 @@ describe("renderPiExtension", () => {
     // escaped quotes, or it silently truncates at --comment (node --check still
     // passes, because \"<reply>\" parses as a comparison).
     expect(source).toMatch(/--comment \\"<reply>\\"/);
+    // The clip() whitespace regex must arrive as \s in the generated module:
+    // a single backslash inside the template collapses to a bare "s", which
+    // silently deletes every letter s from every notification line.
+    expect(source).toContain("/\\s+/g");
     expect(source).toContain('pi.on("before_agent_start"');
     expect(source).toContain("systemPrompt: base");
     // Self-contained: only Node builtins, nothing to resolve at install time.

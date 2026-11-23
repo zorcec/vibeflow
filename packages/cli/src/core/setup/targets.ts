@@ -345,6 +345,27 @@ function describeEvent(event) {
   return "task " + event.taskId + " " + event.type + " (" + shown + ")";
 }
 
+/** The one piece of substance an event type deserves, from a fetched task. */
+function detailFrom(event, task) {
+  if (task === null || task === undefined) return null;
+  if (event.type === "task.create" && typeof task.title === "string") {
+    return { title: task.title };
+  }
+  if (event.type === "task.comment") {
+    const comments = Array.isArray(task.comments) ? task.comments : [];
+    const last = comments[comments.length - 1];
+    if (last && typeof last.body === "string") return { comment: last.body };
+    return null;
+  }
+  if (event.type === "task.file") {
+    const files = Array.isArray(task.files) ? task.files : [];
+    const last = files[files.length - 1];
+    if (last && typeof last.name === "string") return { file: last.name };
+    return null;
+  }
+  return null;
+}
+
 /** The line, plus the one piece of substance the event type deserves. */
 function describeWith(event, detail) {
   const base = describeEvent(event);
@@ -355,6 +376,9 @@ function describeWith(event, detail) {
     }
     if (event.type === "task.create" && detail.title) {
       return base + ' · "' + clip(detail.title) + '"';
+    }
+    if (event.type === "task.file" && detail.file) {
+      return base + " · " + clip(detail.file);
     }
     if (event.type === "task.update" && formalues(event)) return base + " · " + formalues(event);
   } catch {
@@ -387,7 +411,7 @@ function errorText(error) {
 const EXCERPT_CHARS = 70;
 
 function clip(text) {
-  const flat = String(text).replace(/\s+/g, " ").trim();
+  const flat = String(text).replace(/\\s+/g, " ").trim();
   return flat.length > EXCERPT_CHARS ? flat.slice(0, EXCERPT_CHARS - 1) + "\u2026" : flat;
 }
 
@@ -498,10 +522,32 @@ export default function (pi) {
     }
     eventsSeen += 1;
     if (typeof event.ts === "string") lastEventTs = event.ts;
-    pi.sendMessage(
-      { customType: CUSTOM_TYPE, content: describeEvent(event), display: true },
-      { triggerTurn: true },
-    );
+
+    function send(detail) {
+      try {
+        pi.sendMessage(
+          { customType: CUSTOM_TYPE, content: describeWith(event, detail), display: true },
+          { triggerTurn: true },
+        );
+      } catch {
+        // A TUI hiccup must never stop the feed.
+      }
+    }
+
+    // Comment, create and file events carry no content by contract, so the
+    // substance is read on the spot; everything else is fully described by the
+    // event itself (an update's new values ride its own to).
+    if (
+      event.type === "task.comment" ||
+      event.type === "task.create" ||
+      event.type === "task.file"
+    ) {
+      readTask(event.taskId, function (_title, task) {
+        send(detailFrom(event, task));
+      });
+      return;
+    }
+    send(null);
   }
 
   function start() {
