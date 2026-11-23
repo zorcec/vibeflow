@@ -270,9 +270,18 @@ describe("renderPiExtension", () => {
     expect(source).toContain('pi.on("session_start"');
     expect(source).toContain('pi.on("session_shutdown"');
     expect(source).toContain('"--follow", "--json"');
-    // Self-contained: no import other than a Node builtin.
+    // The extension follows the project it was INSTALLED for, not pi's cwd:
+    // a session started in a parent directory with its own .vibeflow used to
+    // follow that unrelated local store and stay silent.
+    expect(source).toContain("INSTALL_PROJECT");
+    expect(source).toContain("VIBEFLOW_NOTIFY_PROJECT");
+    expect(source).toMatch(/spawn\(command, args, \{[^}]*cwd/);
+    // Self-contained: only Node builtins, nothing to resolve at install time.
+    // `node:fs` is the existence check on the pinned project dir, so a deleted
+    // install target falls back to cwd instead of breaking the extension.
     const imports = [...source.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
-    expect(imports).toEqual(["node:child_process"]);
+    expect(imports).toEqual(["node:child_process", "node:fs"]);
+    expect(imports.every((spec) => spec.startsWith("node:"))).toBe(true);
   });
 
   it("embeds the resolved CLI entry, and degrades to PATH when there is none", () => {

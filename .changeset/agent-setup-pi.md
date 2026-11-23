@@ -12,7 +12,10 @@ vibeflow setup claude|codex [--check] [--json]
 
 - `setup pi` writes a self-contained pi extension to
   `~/.pi/agent/extensions/vibeflow-notifications.js` (`--project` installs into
-  `.pi/extensions/` instead). It follows `vibeflow notifications --follow
+  `.pi/extensions/` instead) and follows **the project it was installed for**
+  (passed as the child's `cwd`; `VIBEFLOW_NOTIFY_PROJECT` overrides it), so a
+  session started in a parent directory with its own `.vibeflow` no longer
+  follows that unrelated local store. It follows `vibeflow notifications --follow
   --json` — the backend resolves exactly as it does in the terminal (online for
   a linked project, local otherwise; forcing `--local` made it silent in every
   online project) — and injects one line per task event —
