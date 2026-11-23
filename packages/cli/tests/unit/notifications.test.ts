@@ -487,6 +487,27 @@ describe("notificationFromActivity", () => {
     expect(events[0]?.id).not.toBe(events[1]?.id);
   });
 
+  it("drops a metadata-only update instead of emitting noise", () => {
+    // A comment-only edit touches `updatedAt` and reports itself through
+    // `task.comment`; a bare `task.update (updatedAt)` beside it is noise that
+    // teaches a consumer to ignore the feed.
+    expect(
+      notificationFromActivity(
+        "task.update",
+        { taskId: "aaa11111", changed: ["updatedAt", "sortKey"] },
+        EXTRAS,
+      ),
+    ).toBeNull();
+    // A real field survives, and the bookkeeping keys are stripped with it.
+    expect(
+      notificationFromActivity(
+        "task.update",
+        { taskId: "aaa11111", changed: ["updatedAt", "status"] },
+        EXTRAS,
+      )?.changed,
+    ).toEqual(["status"]);
+  });
+
   it("drops effects that are not actionable (push/pull carry no task id)", () => {
     const events = notificationsFromConfirmed(
       [

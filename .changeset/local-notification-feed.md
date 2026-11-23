@@ -17,6 +17,10 @@ notification never fails the write it describes), and the board serves it:
 - Emitted from one seam per surface: the CLI's tool wrapper (`tasks --add`,
   `--edit`, `--next`), the MCP dispatch every MCP transport shares, and the
   board's own task-scoped broadcasts (`actor: "board"`).
+- Bookkeeping-only writes are **not events**: a patch that only touches
+  `updatedAt`/`sortKey`/`rev` produces nothing (a comment-only edit still
+  reports `task.comment`), and those keys are stripped from `changed` when a
+  real field changes with them. Both backends enforce the same list.
 - `VIBEFLOW_EVENTS=0` disables the feature (tests set it so no file is created).
 
 **Read it from the CLI or from an agent.**

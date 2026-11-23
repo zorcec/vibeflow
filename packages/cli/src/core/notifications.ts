@@ -124,6 +124,20 @@ type ActivityProjection<A extends HookActivity> = (
  * only activities that cannot: they carry no task id, and an event nobody
  * can resolve with `tasks --get <id>` is noise — they project to `null`.
  */
+/**
+ * Bookkeeping fields a write always touches. They say nothing about WHAT
+ * happened, and an agent polling the feed must not be woken by them: a
+ * comment-only edit produced \`task.update (updatedAt)\` beside the real
+ * \`task.comment\`, which is noise that trains a consumer to ignore the feed.
+ * The same list is enforced on the hosted surface (`server/notifications/ring`)
+ * — the two backends must stay 1:1.
+ */
+const METADATA_ONLY_KEYS: ReadonlySet<string> = new Set([
+  "updatedAt",
+  "sortKey",
+  "rev",
+]);
+
 const PROJECTIONS: { [A in HookActivity]: ActivityProjection<A> } = {
   "task.create": (payload, extras) =>
     notificationEvent("task.create", payload.task.id, extras, {
@@ -132,10 +146,13 @@ const PROJECTIONS: { [A in HookActivity]: ActivityProjection<A> } = {
         ...(payload.task.type ? { type: payload.task.type } : {}),
       },
     }),
-  "task.update": (payload, extras) =>
-    notificationEvent("task.update", payload.taskId, extras, {
-      changed: payload.changed,
-    }),
+  "task.update": (payload, extras) => {
+    const changed = payload.changed.filter((key) => !METADATA_ONLY_KEYS.has(key));
+    // Nothing but bookkeeping moved: the answer is "no event". A comment-only
+    // edit still reports itself through `task.comment`.
+    if (changed.length === 0) return null;
+    return notificationEvent("task.update", payload.taskId, extras, { changed });
+  },
   "task.claim": (payload, extras) =>
     notificationEvent("task.claim", payload.taskId, extras, {
       changed: ["status"],
