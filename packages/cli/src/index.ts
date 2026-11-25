@@ -44,6 +44,12 @@ import {
   type SubscriberCallResult,
 } from "./core/notifications-subscribers.js";
 import {
+  NOTIFICATIONS_DEDUPE_WINDOW,
+  isCursorExpired,
+  isTerminalNotificationFailure,
+  retryDelayMs,
+} from "./core/notifications-retry.js";
+import {
   attentionClaimAlert,
   ATTENTION_NOTICE_CODE,
 } from "./core/attention.js";
@@ -8058,38 +8064,145 @@ async function followNotifications(
   };
 
   const emitted = new Set<unknown>();
+  /**
+   * Remember a delivered id, keeping only the newest window. The feed is
+   * at-least-once (inclusive `since`), so a memory is required; an unbounded
+   * one is a leak in a process meant to run for days (ticket liolbrdi).
+   */
+  const rememberEmitted = (key: unknown): void => {
+    emitted.add(key);
+    while (emitted.size > NOTIFICATIONS_DEDUPE_WINDOW) {
+      const oldest = emitted.values().next();
+      if (oldest.done === true) break;
+      emitted.delete(oldest.value);
+    }
+  };
+
+  /**
+   * Sleep between attempts. Deliberately REFERENCED: an unref'd timer is not
+   * enough to keep the process alive, so a follower in backoff would exit
+   * silently — the exact failure this loop exists to prevent. Ctrl-C still
+   * works, because `stop()` ends the process instead of waiting for the timer.
+   */
+  const sleep = (ms: number): Promise<void> =>
+    new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
+
+  /**
+   * The end of a follower that cannot work: stop watching, close the child,
+   * report the reason. Only reached for a failure waiting cannot fix.
+   */
+  const tearDown = async (
+    code: string,
+    message: string,
+  ): Promise<{ ok: false; code: string; message: string }> => {
+    stopHeartbeat();
+    if (pendingRegistration !== null) await pendingRegistration;
+    if (registeredTarget !== null) {
+      await unregisterNotificationSubscriber(
+        projectDir,
+        registeredTarget,
+        subscriber.subscriberId,
+      );
+    }
+    try {
+      child?.stdin?.end();
+    } catch {
+      /* already closed */
+    }
+    return { ok: false, code, message };
+  };
+
   let cursor = opts.since;
   let target: NotificationTarget | undefined = opts.target;
+  // Consecutive retryable failures; drives the backoff step.
+  let failures = 0;
+  // One line when the feed goes down, one when it comes back — never one per
+  // attempt, or the log becomes the reason nobody reads it.
+  let failureReported = false;
+
   for (;;) {
-    const result = await fetchNotifications(projectDir, {
-      ...(target !== undefined ? { target } : {}),
-      ...(cursor !== undefined ? { since: cursor } : {}),
-      ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
-    });
+    let result: Awaited<ReturnType<typeof fetchNotifications>>;
+    try {
+      result = await fetchNotifications(projectDir, {
+        ...(target !== undefined ? { target } : {}),
+        ...(cursor !== undefined ? { since: cursor } : {}),
+        ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+      });
+    } catch (err) {
+      // An unexpected throw must never end a process whose whole job is to keep
+      // reading: treat it as one more retryable failure.
+      result = {
+        ok: false,
+        code: "NOTIFICATIONS_FETCH_FAILED",
+        message: `Notification feed read threw: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      };
+    }
+
     if (!result.ok) {
-      stopHeartbeat();
-      if (pendingRegistration !== null) await pendingRegistration;
-      if (registeredTarget !== null) {
-        await unregisterNotificationSubscriber(
-          projectDir,
-          registeredTarget,
-          subscriber.subscriberId,
+      if (isCursorExpired(result)) {
+        // Typed recovery, not a retry: this cursor can never work again. Drop
+        // the client state and resume from the newest events, and SAY that
+        // some may have been missed — silence here would be a lie.
+        cursor = undefined;
+        emitted.clear();
+        failures = 0;
+        failureReported = false;
+        console.error(
+          chalk.yellow(
+            "! feed: the cursor expired — resuming from the newest events (events in between may be missed)",
+          ),
+        );
+        await sleep(NOTIFICATIONS_POLL_INTERVAL_MS);
+        continue;
+      }
+      if (isTerminalNotificationFailure(result)) {
+        return tearDown(result.code, result.message);
+      }
+      failures += 1;
+      if (!failureReported) {
+        failureReported = true;
+        // The watcher registration stays alive on purpose: a feed path can be
+        // flaky while the board itself is fine, and a follower that unregisters
+        // on every blip disappears from the badge for a whole TTL.
+        console.error(
+          chalk.dim(`! feed: ${result.message} — retrying (the follower stays up)`),
         );
       }
-      try {
-        child?.stdin?.end();
-      } catch {
-        /* already closed */
-      }
-      return { ok: false, code: result.code, message: result.message };
+      await sleep(retryDelayMs(result, failures));
+      continue;
+    }
+
+    const recovered = failureReported;
+    if (recovered) {
+      console.error(
+        chalk.dim(`✓ feed: reconnected after ${failures} failed attempt(s)`),
+      );
+      failureReported = false;
+    }
+    failures = 0;
+
+    if (target !== undefined && result.target !== target) {
+      // A different feed: the old cursor and dedupe window describe events the
+      // new one never had.
+      cursor = undefined;
+      emitted.clear();
     }
     target = result.target;
     if (registeredTarget !== target) startWatching(target);
+    else if (recovered) {
+      // The TTL may have lapsed during the outage; re-announce immediately
+      // instead of waiting for the next heartbeat beat.
+      sendRegistration(target);
+    }
     for (const event of result.notifications) {
       const id = (event as { id?: unknown }).id;
       const key = id ?? JSON.stringify(event);
       if (emitted.has(key)) continue;
-      emitted.add(key);
+      rememberEmitted(key);
       // The last event this follower actually delivered — the only activity
       // the follower can honestly report (it reads, it does not write).
       subscriber.activity = activityFromEvent(event);

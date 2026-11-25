@@ -88,6 +88,14 @@ export interface FetchRefusal {
   ok: false;
   code: string;
   message: string;
+  /**
+   * The HTTP status when the board answered at all. Absent for a transport
+   * failure or a timeout — a distinction a follower needs: a 401 will never
+   * fix itself by waiting, a dropped socket will.
+   */
+  status?: number;
+  /** `Retry-After`, in ms, when the board asked for a specific wait. */
+  retryAfterMs?: number;
 }
 
 /** The project's own access to its board: no token, no online read. */
@@ -144,6 +152,24 @@ function readLocal(projectDir: string, opts: FetchOptions): FetchResult {
     truncated: read.truncated,
     count: read.count,
   };
+}
+
+/**
+ * `Retry-After` → milliseconds. Delta-seconds is the common form; an HTTP date
+ * is the other legal one. A value that is neither (or is negative) is dropped
+ * rather than guessed at — the follower's own backoff then decides.
+ */
+function retryAfterFrom(value: string | null | undefined): number | undefined {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : undefined;
+  }
+  const at = Date.parse(trimmed);
+  if (Number.isNaN(at)) return undefined;
+  const delta = at - Date.now();
+  return delta > 0 ? delta : 0;
 }
 
 /** One request: the injected transport in tests, the bounded fetch everywhere else. */
@@ -223,10 +249,16 @@ async function readOnline(
     };
   }
   if (!res.ok) {
+    // `Retry-After` is the one instruction the board can give about WHEN, and
+    // only a retryable status can carry a useful one. Seconds or an HTTP date;
+    // anything unparseable is simply absent (the caller's backoff decides).
+    const retryAfterMs = retryAfterFrom(res.headers?.get("retry-after"));
     return {
       ok: false,
       code: "NOTIFICATIONS_FETCH_FAILED",
       message: `Notification feed request failed: HTTP ${res.status}`,
+      status: res.status,
+      ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
     };
   }
   let body: unknown;
