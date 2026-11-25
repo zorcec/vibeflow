@@ -25,9 +25,9 @@ import {
 } from "./core/tasks.js";
 import { addComment } from "./core/comments.js";
 import {
-  appendNotification,
-  notificationsFromConfirmed,
-  notificationsEnabled,
+  appendConfirmedNotification,
+  isOwnNotification,
+  notificationIdentity,
   type NotificationEvent,
 } from "./core/notifications.js";
 import {
@@ -511,16 +511,17 @@ export interface ToolActionOutcome extends ToolOutcome {
 }
 
 /**
- * Append the invocation's ONE notification event (ticket ecba6126),
- * projected from the confirmed effect the operation recorded on the scope —
- * the same `HookActivity` + confirmed payload the after-hook narrates, so
- * the event can never describe a write the hooks did not see.
+ * Append the invocation's notification events (ticket ecba6126), projected
+ * from the confirmed effects the operation recorded on the scope — the same
+ * `HookActivity` + confirmed payload the after-hook narrates, so the event can
+ * never describe a write the hooks did not see.
  *
  * Guards: no confirmed effect (reads, refused writes), no resolved project
- * (nothing to append to), a dry-run preview (nothing was written), the kill
- * switch. Every failure is swallowed — a notification is a side channel and
- * must never fail the task write it describes. `actor` is the caller's
- * identity when the environment names one, else the agent default.
+ * (nothing to append to), a dry-run preview (nothing was written). Every
+ * failure is swallowed — a notification is a side channel and must never fail
+ * the task write it describes. Identity comes from
+ * {@link notificationIdentity}: `actor` keeps the historical "agent" default,
+ * `agent` is set only when `$VIBEFLOW_ACTOR` explicitly names this agent.
  */
 function emitInvocationNotification(
   handle: ToolInvocationHandle,
@@ -528,14 +529,13 @@ function emitInvocationNotification(
 ): void {
   const projectDir = handle.target?.projectDir;
   if (handle.confirmed.length === 0 || projectDir === undefined) return;
-  if (dryRun || !notificationsEnabled()) return;
+  if (dryRun) return;
+  const identity = notificationIdentity();
   try {
     // One event per confirmed EFFECT: a single command can report two
     // (`--edit --set-status X --comment "…"`), and both are true.
-    for (const event of notificationsFromConfirmed(handle.confirmed, {
-      actor: process.env.VIBEFLOW_ACTOR?.trim() || "agent",
-    })) {
-      appendNotification(projectDir, event);
+    for (const effect of handle.confirmed) {
+      appendConfirmedNotification(projectDir, effect, identity);
     }
   } catch {
     /* a notification must never fail a task write */
@@ -8065,6 +8065,14 @@ async function followNotifications(
 
   const emitted = new Set<unknown>();
   /**
+   * This follower's own agent id, read ONCE: the delivery filter keys on it.
+   * `$VIBEFLOW_ACTOR` is explicit operator configuration, never a default —
+   * an unidentified follower (undefined) delivers everything, including its
+   * own writes (documented residual: silence must never come from an
+   * unknown identity, or every unset agent would stop seeing its peers).
+   */
+  const selfAgent = process.env.VIBEFLOW_ACTOR?.trim() || undefined;
+  /**
    * Remember a delivered id, keeping only the newest window. The feed is
    * at-least-once (inclusive `since`), so a memory is required; an unbounded
    * one is a leak in a process meant to run for days (ticket liolbrdi).
@@ -8203,6 +8211,11 @@ async function followNotifications(
       const key = id ?? JSON.stringify(event);
       if (emitted.has(key)) continue;
       rememberEmitted(key);
+      // Self-suppression (ticket kzxaq0fd) lives HERE, in the delivery path
+      // only: the cursor above still advances over the event, and a one-shot
+      // `--json` read stays complete (a consumer may apply its own rule from
+      // the event's `agent`). A peer's or a human's write never matches.
+      if (isOwnNotification(event, selfAgent)) continue;
       // The last event this follower actually delivered — the only activity
       // the follower can honestly report (it reads, it does not write).
       subscriber.activity = activityFromEvent(event);

@@ -536,6 +536,33 @@ describe("updateSaasTask", () => {
     expect((options.headers as Record<string, string>).Authorization).toBe("Bearer test-token");
   });
 
+  it("sends X-Vibeflow-Agent ONLY when VIBEFLOW_ACTOR is explicitly set", async () => {
+    // Ticket kzxaq0fd: the hosted notification's `actor` is the token owner,
+    // so the caller declares the agent that caused the write. The `agent`
+    // default is shared and must never become an identity.
+    const saved = process.env.VIBEFLOW_ACTOR;
+    try {
+      process.env.VIBEFLOW_ACTOR = "  pi-a  ";
+      mockFetch(SAMPLE_TASK);
+      await updateSaasTask("task-1", { status: "in-progress" }, "/test-project");
+      const withAgent = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
+      expect((withAgent.headers as Record<string, string>)["X-Vibeflow-Agent"]).toBe(
+        "pi-a",
+      );
+
+      delete process.env.VIBEFLOW_ACTOR;
+      mockFetch(SAMPLE_TASK);
+      await updateSaasTask("task-1", { status: "todo" }, "/test-project");
+      const withoutAgent = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
+      expect(withoutAgent.headers as Record<string, string>).not.toHaveProperty(
+        "X-Vibeflow-Agent",
+      );
+    } finally {
+      if (saved === undefined) delete process.env.VIBEFLOW_ACTOR;
+      else process.env.VIBEFLOW_ACTOR = saved;
+    }
+  });
+
   it("sends PATCH request to correct URL", async () => {
     mockFetch(SAMPLE_TASK);
     await updateSaasTask("task-1", { status: "in-progress" }, "/test-project");

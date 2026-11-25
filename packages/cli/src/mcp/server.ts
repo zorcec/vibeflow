@@ -16,9 +16,8 @@ import { CLI_VERSION } from "../version.js";
 import { manifest } from "./manifest.js";
 import { capture } from "../telemetry.js";
 import {
-  appendNotification,
-  notificationsFromConfirmed,
-  notificationsEnabled,
+  appendConfirmedNotification,
+  notificationIdentity,
 } from "../core/notifications.js";
 import type { ToolInvocationHandle } from "../core/hooks/invocation.js";
 import {
@@ -222,13 +221,16 @@ function recordToolNotification(
   handle: ToolInvocationHandle,
   ctx: OperationContext,
 ): void {
-  if (handle.confirmed.length === 0 || !notificationsEnabled()) return;
+  if (handle.confirmed.length === 0) return;
+  // Same identity rule as the CLI boundary (ticket kzxaq0fd): the actor keeps
+  // the historical "agent" default; the `agent` field is stamped only when
+  // `$VIBEFLOW_ACTOR` explicitly names this agent, so the follower can
+  // suppress its OWN writes without suppressing a peer's.
+  const identity = notificationIdentity();
   try {
     // One event per confirmed EFFECT (see the CLI boundary).
-    for (const event of notificationsFromConfirmed(handle.confirmed, {
-      actor: "agent",
-    })) {
-      appendNotification(ctx.projectDir, event);
+    for (const effect of handle.confirmed) {
+      appendConfirmedNotification(ctx.projectDir, effect, identity);
     }
   } catch {
     /* a notification must never fail a tool call */

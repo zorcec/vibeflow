@@ -1,10 +1,12 @@
 import { taskReadNotices, type TaskReadFinding } from "../core/task-record-read.js";
 import {
-  appendNotification,
-  newNotificationId,
-  notificationsEnabled,
+  appendConfirmedNotification,
   readNotifications,
 } from "../core/notifications.js";
+import type {
+  HookActivity,
+  HookConfirmedPayloads,
+} from "../core/hooks/activities.js";
 import {
   listSubscribers,
   registerSubscriber,
@@ -75,7 +77,7 @@ import {
   buildChangelogResponse,
   readChangelogContent,
 } from "../core/changelog.js";
-import { getProjectName, getCurrentBranch } from "../core/config.js";
+import { getProjectName, getCurrentBranch, readConfig, writeConfig } from "../core/config.js";
 import {
   assertSafeProjectDir,
   formatProjectRootAnnouncement,
@@ -244,22 +246,13 @@ type PanelChangedPart = "comments" | "files" | "task";
 
 /** Broadcast a tasks-updated event, optionally scoped to a specific task.
  *
- * A task-scoped broadcast is ALSO a local task mutation (ticket ecba6126): a
- * human clicking on the board never passes through the CLI's `toolAction`
- * wrapper, so this is the human-click seam for `GET /api/notifications`. The
- * event is appended after the broadcast, one per scoped call, and never
- * throws — a missing notification must not break a board interaction. The
- * unscoped call (a whole-board reload, no task id) names no task and so
- * emits nothing.
- *
- * Deliberately NOT projected from `HookActivity` (unlike every other seam):
- * a board click performs no activity — nothing is gated, nothing is
- * narrated, there is no confirmed `HookConfirmedPayloads` entry to project.
- * Its `changed` names are the PANEL-level vocabulary (`task` | `comments` |
- * `files`) the board itself broadcasts, which is why the event type stays
- * the generic `task.update` and the parts are not task-field names. */
+ * BROADCAST ONLY. Notification emission is the ROUTE's call, through
+ * {@link notifyBoardEffect}, because only the route knows which effect it
+ * just confirmed — the old generic emission told a follower nothing about a
+ * comment (it produced a `task.update` with a panel part, never the
+ * `task.comment` a consumer acts on) and the status route emitted nothing at
+ * all (ticket mzxp8u98). */
 function broadcastTaskUpdated(
-  projectDir: string,
   broadcast: BroadcastFn,
   taskId?: string,
   changed?: PanelChangedPart[],
@@ -269,19 +262,29 @@ function broadcastTaskUpdated(
     ...(taskId && { taskId }),
     ...(changed && { changed }),
   });
-  if (!taskId || !notificationsEnabled()) return;
-  try {
-    appendNotification(projectDir, {
-      id: newNotificationId(),
-      ts: new Date().toISOString(),
-      type: "task.update",
-      taskId,
-      actor: "board",
-      ...(changed && changed.length > 0 ? { changed: [...changed] } : {}),
-    });
-  } catch {
-    /* a notification must never fail a board interaction */
-  }
+}
+
+/**
+ * Record the notification for ONE confirmed board write (ticket mzxp8u98).
+ *
+ * A board click never passes through `emitAfterHook`, so the board's emitter
+ * was a separate ad-hoc path: a comment produced no `task.comment` at all,
+ * and a status edit produced nothing. This helper is the board's call into
+ * the SAME append seam the CLI/MCP boundary uses, so the projection table is
+ * never duplicated and a board event describes the same effect the CLI would.
+ *
+ * `actor` is "board" (a human click), and `agent` is ABSENT on purpose: the
+ * server cannot know which agent, if any, caused the request, and stamping
+ * the serve process's `$VIBEFLOW_ACTOR` would hide a human's write from the
+ * agent that started the board — the exact blindness ticket kzxaq0fd warns
+ * about. A board write is therefore never "self" for any follower.
+ */
+function notifyBoardEffect<A extends HookActivity>(
+  projectDir: string,
+  activity: A,
+  payload: HookConfirmedPayloads[A],
+): void {
+  appendConfirmedNotification(projectDir, { activity, payload }, { actor: "board" });
 }
 
 // Injected at build time by tsup; undefined in raw TypeScript runs.
@@ -297,6 +300,32 @@ const CLI_VERSION =
  * rule in the guide module, so `serve()` and the `start_kanban` dry-run
  * preview can never disagree about what URL a host/port pair means. */
 export const resolveServeUrls = resolveDisplayUrl;
+
+/**
+ * Publish the port this board ACTUALLY bound into the project's config
+ * (ticket xy58j31z). `notifications --follow` has no other way to learn a
+ * custom `serve -p <port>`: it reads `<project>/.vibeflow/config.json`
+ * (default 3700), so a board on 3799 left every follower unregistered and
+ * the Watching badge reading 0 — silently, in the direction that looks like
+ * "nobody is listening".
+ *
+ * The BOUND port is written, not the requested one, so `-p 0` (and any
+ * future fallback bind) publishes the truth. Best effort: this is
+ * follower-discovery metadata and must never turn a served board into a
+ * failed boot.
+ */
+function publishServedPort(
+  projectDir: string,
+  server: import("node:http").Server,
+): void {
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") return;
+    writeConfig(projectDir, { ...readConfig(projectDir), port: address.port });
+  } catch {
+    /* discovery metadata only — never fail serve() over it */
+  }
+}
 
 /** Registers /api/pages — returns the list of HTML pages being served. */
 function registerPagesApi(app: express.Application, pages: string[]): void {
@@ -894,6 +923,18 @@ function registerTaskApi(
       `[Vibeflow] Task updated: "${updated.title}" (${updated.id}) → status:${updated.status}`,
     );
 
+    // The board's status/field edit IS a confirmed `task.update` (ticket
+    // mzxp8u98: the server-side edit told no follower anything). `changed`
+    // is the whitelist the route actually wrote; the projection drops
+    // bookkeeping keys (`sortKey`, …), so a pure sort reorder stays silent.
+    // Cascaded descendants are deliberately not a second event here — the
+    // requested task is the confirmed effect the caller asked for, and the
+    // hosted surface treats a cascade the same way.
+    notifyBoardEffect(projectDir, "task.update", {
+      taskId: updated.id,
+      changed: Object.keys(updates),
+    });
+
     // Cascade done status: when a parent is moved to done, all descendants
     // are also marked done so the entire subtree completes together.
     const cascadedDescendants: (typeof updated)[] = [];
@@ -1105,7 +1146,14 @@ function registerTaskApi(
       undefined,
       validSource,
     );
-    broadcastTaskUpdated(projectDir, broadcast, id, ["comments"]);
+    // The comment IS the confirmed effect: one `task.comment` event naming
+    // it, exactly what the CLI `--comment` path emits. The open tab still
+    // gets the panel invalidation over the socket.
+    notifyBoardEffect(projectDir, "task.comment", {
+      taskId: id,
+      commentId: comment.id,
+    });
+    broadcastTaskUpdated(broadcast, id, ["comments"]);
     res.json({ success: true, comment });
   });
 
@@ -1121,7 +1169,13 @@ function registerTaskApi(
       res.status(404).json({ error: "Comment not found" });
       return;
     }
-    broadcastTaskUpdated(projectDir, broadcast, id, ["comments"]);
+    // NO notification event for an EDIT, deliberately: the activity
+    // vocabulary has only `task.comment` (a comment was ADDED, carrying its
+    // id), and the hosted ring maps `task.comment.update` to null for the
+    // same reason. A follower reading a comment edit as a fresh comment
+    // would be woken to read text it already has; the open board still
+    // refreshes over the WebSocket.
+    broadcastTaskUpdated(broadcast, id, ["comments"]);
     res.json({ success: true, comment });
   });
 
@@ -1132,7 +1186,11 @@ function registerTaskApi(
       res.status(404).json({ error: "Comment not found" });
       return;
     }
-    broadcastTaskUpdated(projectDir, broadcast, id, ["comments"]);
+    // NO notification event for a DELETE, for the same documented reason as
+    // the edit above: there is no `task.comment`-removed activity, and the
+    // hosted ring says the same. (A soft-deleted comment keeps its trace on
+    // disk; the feed already named the original add.)
+    broadcastTaskUpdated(broadcast, id, ["comments"]);
     res.json({ success: true });
   });
 
@@ -1198,7 +1256,17 @@ function registerTaskApi(
       );
       // A file op also writes a system comment trace above, so both panel
       // parts are stale (ticket d4c533f9).
-      broadcastTaskUpdated(projectDir, broadcast, id, ["files", "comments"]);
+      //
+      // The feed event stays `task.update (files)`: the activity vocabulary
+      // has no file activity (only the hosted ring has `task.file`), and a
+      // generic update naming the panel part is the honest local analogue —
+      // it tells a follower which task gained a file without inventing a
+      // second vocabulary row.
+      notifyBoardEffect(projectDir, "task.update", {
+        taskId: id,
+        changed: ["files"],
+      });
+      broadcastTaskUpdated(broadcast, id, ["files", "comments"]);
       res.json({ success: true, file: info });
     },
   );
@@ -1226,8 +1294,14 @@ function registerTaskApi(
       "web",
     );
     // The removal trace above is a comment write, so both panel parts
-    // are stale (ticket d4c533f9).
-    broadcastTaskUpdated(projectDir, broadcast, id, ["files", "comments"]);
+    // are stale (ticket d4c533f9). Same `task.update (files)` projection as
+    // the add path — the local vocabulary has no file activity, so this is
+    // the documented local counterpart of the hosted `task.file`.
+    notifyBoardEffect(projectDir, "task.update", {
+      taskId: id,
+      changed: ["files"],
+    });
+    broadcastTaskUpdated(broadcast, id, ["files", "comments"]);
     res.json({ success: true });
   });
 
@@ -1261,8 +1335,14 @@ function registerTaskApi(
       );
       updateTask(projectDir, id, { screenshot: baseline } as Partial<Task>);
       // Screenshot attaches only touch task fields — no comments/files
-      // refetch needed (ticket d4c533f9).
-      broadcastTaskUpdated(projectDir, broadcast, id, ["task"]);
+      // refetch needed (ticket d4c533f9). The notification names the field
+      // that moved, so a follower knows WHAT changed (the old generic board
+      // event said only "task").
+      notifyBoardEffect(projectDir, "task.update", {
+        taskId: id,
+        changed: ["screenshot"],
+      });
+      broadcastTaskUpdated(broadcast, id, ["task"]);
       res.json({ success: true, screenshot: baseline });
       return;
     }
@@ -1276,7 +1356,11 @@ function registerTaskApi(
       join(screenshotsDir, filename),
       Buffer.from(screenshot, "base64"),
     );
-    broadcastTaskUpdated(projectDir, broadcast, id, ["task"]);
+    notifyBoardEffect(projectDir, "task.update", {
+      taskId: id,
+      changed: ["screenshot"],
+    });
+    broadcastTaskUpdated(broadcast, id, ["task"]);
     res.json({ success: true, screenshot: filename, proof: true });
   });
 
@@ -1292,7 +1376,11 @@ function registerTaskApi(
       unlinkSync(filePath);
     }
     updateTask(projectDir, id, { screenshot: undefined } as Partial<Task>);
-    broadcastTaskUpdated(projectDir, broadcast, id, ["task"]);
+    notifyBoardEffect(projectDir, "task.update", {
+      taskId: id,
+      changed: ["screenshot"],
+    });
+    broadcastTaskUpdated(broadcast, id, ["task"]);
     res.json({ success: true });
   });
 
@@ -1573,7 +1661,7 @@ function registerMetaApis(
             /* ignore — already removed */
           }
         }
-        if (broadcast) broadcastTaskUpdated(projectDir, broadcast);
+        if (broadcast) broadcastTaskUpdated(broadcast);
       }
       res.json({
         imported: result.imported,
@@ -2323,6 +2411,7 @@ async function serveApiOnly(
         })
       : localGuide;
     httpServer.listen(options.port, bindHost, () => {
+      publishServedPort(projectDir, httpServer);
       const divider = guideDivider();
 
       // `quiet` is the programmatic-caller switch: the MCP tools own stdout
@@ -2631,6 +2720,7 @@ li{margin:8px 0}</style></head>
     const { url, localUrl } = serveUrls;
     const guide = buildIntegrationGuide({ url, localUrl });
     httpServer.listen(options.port, bindHost2, () => {
+      publishServedPort(projectDir, httpServer);
       // `quiet` is for programmatic callers only — see ServeOptions.quiet.
       if (!options.quiet) {
         const lines: string[] = [

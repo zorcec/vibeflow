@@ -20,9 +20,12 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  appendConfirmedNotification,
   appendNotification,
+  isOwnNotification,
   newNotificationId,
   notificationFromActivity,
+  notificationIdentity,
   notificationsEnabled,
   notificationsFromConfirmed,
   notificationsPath,
@@ -631,5 +634,159 @@ describe("confirmed capture → projection (hooks disabled)", () => {
         (event) => event.type,
       ),
     ).toEqual(["task.update", "task.comment"]);
+  });
+});
+
+/**
+ * Explicit agent identity (ticket kzxaq0fd): `$VIBEFLOW_ACTOR` is the only
+ * identity a follower may suppress on. The event's `agent` is a separate field
+ * from `actor` because `actor` falls back to the shared "agent" default —
+ * which cannot tell two agents apart — and because the hosted `actor` is the
+ * credential owner (a user id shared by every agent on the PAT).
+ */
+describe("notificationIdentity", () => {
+  it("names the explicit $VIBEFLOW_ACTOR as BOTH actor and agent", () => {
+    expect(notificationIdentity({ VIBEFLOW_ACTOR: "  pi-a  " })).toEqual({
+      actor: "pi-a",
+      agent: "pi-a",
+    });
+  });
+
+  it("keeps the historical 'agent' actor but stamps NO agent when unset", () => {
+    const identity = notificationIdentity({});
+    expect(identity.actor).toBe("agent");
+    // The absence is load-bearing: stamping the shared default as `agent`
+    // would make every unidentified follower suppress every other's events.
+    expect(identity).not.toHaveProperty("agent");
+  });
+
+  it("treats a blank or whitespace-only value as unset", () => {
+    for (const VIBEFLOW_ACTOR of ["", "   "]) {
+      const identity = notificationIdentity({ VIBEFLOW_ACTOR });
+      expect(identity.actor).toBe("agent");
+      expect(identity).not.toHaveProperty("agent");
+    }
+  });
+
+  it("carries the agent through the projection (a consumer can decide)", () => {
+    const event = notificationFromActivity(
+      "task.comment",
+      { taskId: "abc12345", commentId: "cmt-1" },
+      notificationIdentity({ VIBEFLOW_ACTOR: "pi-a" }),
+    );
+    expect(event).toMatchObject({ actor: "pi-a", agent: "pi-a" });
+  });
+});
+
+/**
+ * The follower's delivery filter (ticket kzxaq0fd): suppress only an event
+ * this follower's own agent caused. Peer and unknown identity must pass —
+ * silence may never come from an identity nobody declared.
+ */
+describe("isOwnNotification", () => {
+  const own = { type: "task.comment", taskId: "t1", actor: "user-1", agent: "pi-a" };
+
+  it("suppresses a self-authored event when the identity matches", () => {
+    expect(isOwnNotification(own, "pi-a")).toBe(true);
+  });
+
+  it("delivers a peer's event (different declared agent)", () => {
+    expect(isOwnNotification(own, "pi-b")).toBe(false);
+  });
+
+  it("delivers an event with NO agent (human/board write or old event)", () => {
+    expect(
+      isOwnNotification({ type: "task.update", taskId: "t1", actor: "board" }, "pi-a"),
+    ).toBe(false);
+  });
+
+  it("never suppresses without an explicit self identity — the residual", () => {
+    // Without VIBEFLOW_ACTOR there is no own identity to match, so the
+    // follower still receives its own writes. Documented, not silent.
+    expect(isOwnNotification(own, undefined)).toBe(false);
+    expect(isOwnNotification(own, "")).toBe(false);
+  });
+
+  it("ignores a malformed event instead of throwing", () => {
+    expect(isOwnNotification(null, "pi-a")).toBe(false);
+    expect(isOwnNotification({ agent: 42 }, "pi-a")).toBe(false);
+  });
+});
+
+/**
+ * The ONE append seam the CLI boundary and the board routes share (ticket
+ * mzxp8u98): the event is the projection of a confirmed payload, never a
+ * second description. The kill switch is owned by the seam so a caller cannot
+ * forget it.
+ */
+describe("appendConfirmedNotification", () => {
+  const savedEvents = process.env.VIBEFLOW_EVENTS;
+
+  beforeEach(() => {
+    process.env.VIBEFLOW_EVENTS = "1";
+  });
+
+  afterEach(() => {
+    if (savedEvents === undefined) delete process.env.VIBEFLOW_EVENTS;
+    else process.env.VIBEFLOW_EVENTS = savedEvents;
+  });
+
+  it("appends exactly one event for one confirmed effect, agent preserved", () => {
+    const written = appendConfirmedNotification(
+      projectDir,
+      {
+        activity: "task.comment",
+        payload: { taskId: "abc12345", commentId: "cmt-1" },
+      },
+      { actor: "board" },
+    );
+
+    expect(written).toMatchObject({
+      type: "task.comment",
+      taskId: "abc12345",
+      actor: "board",
+      to: { commentId: "cmt-1" },
+    });
+    const read = readNotifications(projectDir);
+    expect(read.count).toBe(1);
+    // A board write names no agent: it is never "self" for a follower.
+    expect(read.notifications[0]).not.toHaveProperty("agent");
+  });
+
+  it("round-trips an explicit agent through the JSONL store", () => {
+    appendConfirmedNotification(
+      projectDir,
+      { activity: "task.update", payload: { taskId: "abc12345", changed: ["status"] } },
+      { actor: "pi-a", agent: "pi-a" },
+    );
+    const read = readNotifications(projectDir);
+    expect(read.notifications[0]).toMatchObject({
+      type: "task.update",
+      agent: "pi-a",
+      changed: ["status"],
+    });
+  });
+
+  it("writes nothing when VIBEFLOW_EVENTS=0 (the seam owns the switch)", () => {
+    process.env.VIBEFLOW_EVENTS = "0";
+    expect(
+      appendConfirmedNotification(
+        projectDir,
+        { activity: "task.comment", payload: { taskId: "abc12345", commentId: "c" } },
+        { actor: "board" },
+      ),
+    ).toBeNull();
+    expect(readNotifications(projectDir).count).toBe(0);
+  });
+
+  it("drops a bookkeeping-only update (the existing rule still holds)", () => {
+    expect(
+      appendConfirmedNotification(
+        projectDir,
+        { activity: "task.update", payload: { taskId: "abc12345", changed: ["sortKey"] } },
+        { actor: "board" },
+      ),
+    ).toBeNull();
+    expect(readNotifications(projectDir).count).toBe(0);
   });
 });

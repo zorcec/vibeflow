@@ -53,15 +53,28 @@ export interface NotificationEvent {
    * ({@link notificationFromActivity}), never a second description of the
    * write. `push`/`pull` have no `taskId`, and an event is only useful if it
    * is actionable through `tasks --get <id>` — so they project to nothing.
-   * The board's `task.update` is the one deliberate exception: a human click
-   * performs no `HookActivity`, and its `changed` names stay the
-   * panel-level vocabulary (`task` | `comments` | `files`).
+   * The board's write routes share the same seam
+   * ({@link appendConfirmedNotification}) and name the activity they
+   * confirmed; only a file/screenshot write — which has no activity of its
+   * own — keeps a panel-level `task.update` spelling (`files` |
+   * `screenshot`), the vocabulary the board has always emitted.
    * A new category means a new activity, never an ad-hoc string here.
    */
   type: string;
   taskId: string;
   /** "agent" | "board" | `$VIBEFLOW_ACTOR` when set. */
   actor: string;
+  /**
+   * The agent that CAUSED the write, when the emitter explicitly knows one:
+   * `$VIBEFLOW_ACTOR` locally, or `X-Vibeflow-Agent` on a hosted write.
+   *
+   * ABSENT for a human/board write and for an unset identity — deliberately,
+   * because the follower's delivery filter keys on this field and an unknown
+   * identity must never silence anything (see {@link isOwnNotification}).
+   * `actor` stays the reader-facing label; it falls back to "agent" and so
+   * cannot distinguish two agents sharing one credential.
+   */
+  agent?: string;
   /** Field names the mutation touched, when the emitter knows them. */
   changed?: string[];
   /** New values of the changed fields only (status, priority, assignee…). */
@@ -76,10 +89,51 @@ export interface NotificationEvent {
 export interface NotificationExtras {
   /** "agent" | `$VIBEFLOW_ACTOR` | "board". */
   actor: string;
+  /** Explicit agent identity; absent when the caller cannot name one. */
+  agent?: string;
   /** ISO-8601 with ms; defaults to now (tests pin it). */
   ts?: string;
   /** `evt_…`; defaults to a fresh id (tests pin it). */
   id?: string;
+}
+
+/**
+ * Identity for an event an agent-caused surface emits (CLI, MCP, hosted
+ * write): `$VIBEFLOW_ACTOR` when the operator set it, else the historical
+ * "agent" actor default.
+ *
+ * `agent` rides the event ONLY when the variable is explicitly set. The
+ * "agent" default is shared by every unidentified agent, so stamping it as
+ * an identity would make a follower suppress a PEER's event — trading noise
+ * for blindness. An absent `agent` is the honest "I cannot prove whose write
+ * this was" (residual: without the variable, self-notifications remain).
+ */
+export function notificationIdentity(
+  env: NodeJS.ProcessEnv = process.env,
+): NotificationExtras {
+  const explicit = env["VIBEFLOW_ACTOR"]?.trim();
+  return {
+    actor: explicit !== undefined && explicit !== "" ? explicit : "agent",
+    ...(explicit !== undefined && explicit !== "" ? { agent: explicit } : {}),
+  };
+}
+
+/**
+ * True when this event describes a write by THIS follower's own agent — the
+ * one case `--follow` must not deliver (ticket kzxaq0fd).
+ *
+ * Only an explicitly set `selfAgent` can match: an unset identity returns
+ * false for every event, which is the documented residual (no identity, no
+ * suppression). The event's `agent` stays on the wire either way, so a
+ * consumer of a complete `--json` read can apply its own rule.
+ */
+export function isOwnNotification(
+  event: unknown,
+  selfAgent: string | undefined,
+): boolean {
+  if (selfAgent === undefined || selfAgent === "") return false;
+  const agent = (event as { agent?: unknown } | null)?.agent;
+  return typeof agent === "string" && agent === selfAgent;
 }
 
 /** The parts of an event a projection fills in besides identity + type. */
@@ -101,6 +155,7 @@ function notificationEvent(
     type,
     taskId,
     actor: extras.actor,
+    ...(extras.agent !== undefined ? { agent: extras.agent } : {}),
     ...(parts.changed !== undefined ? { changed: parts.changed } : {}),
     ...(parts.to !== undefined ? { to: parts.to } : {}),
   };
@@ -223,6 +278,30 @@ export function notificationsFromConfirmed(
   return events;
 }
 
+/**
+ * THE append seam for one confirmed activity (ticket mzxp8u98): project the
+ * confirmed payload through the ONE table and append the result.
+ *
+ * The CLI invocation boundary and the local board's write routes both call
+ * this — a board click never reaches `emitAfterHook`, so it used to write a
+ * WebSocket frame and nothing else. Sharing the seam (rather than a second
+ * board-local mapping) is what keeps both surfaces describing the same
+ * effect the same way. The kill switch lives here so no caller can forget it.
+ *
+ * Never throws: {@link appendNotification} swallows every store failure, and
+ * the projection is total over the activity union.
+ */
+export function appendConfirmedNotification<A extends HookActivity>(
+  projectDir: string,
+  effect: { activity: A; payload: HookConfirmedPayloads[A] },
+  extras: NotificationExtras,
+): NotificationEvent | null {
+  if (!notificationsEnabled()) return null;
+  const event = projectConfirmed(effect, extras);
+  if (event !== null) appendNotification(projectDir, event);
+  return event;
+}
+
 export interface NotificationReadResult {
   /** Oldest → newest (file order is append order; never re-sorted). */
   notifications: NotificationEvent[];
@@ -294,6 +373,7 @@ function parseEventLine(line: string): NotificationEvent | null {
       taskId: e.taskId,
       actor: e.actor,
       ...(Array.isArray(e.changed) ? { changed: e.changed } : {}),
+      ...(typeof e.agent === "string" ? { agent: e.agent } : {}),
       ...(e.to !== undefined && typeof e.to === "object" && e.to !== null
         ? { to: e.to }
         : {}),

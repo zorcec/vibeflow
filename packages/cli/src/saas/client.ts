@@ -225,7 +225,22 @@ async function getBearerHeaders(
   // project's own pointer — the command entries (tasks/push) run
   // resolveBoardScope first, so auto-selection and the 2+ board refusal
   // happen before any request.
-  return { Authorization: `Bearer ${auth.token}`, ...scopeHeaderFor(auth.workspaceId) };
+  //
+  // X-Vibeflow-Agent (ticket kzxaq0fd): the agent that CAUSED a hosted
+  // write, so a follower can suppress its own write and nobody else's.
+  // Sent only when $VIBEFLOW_ACTOR is explicitly set — the event's `actor`
+  // is the credential owner (shared by every agent on one PAT), so it
+  // cannot distinguish two agents; the "agent" default must never become
+  // an identity. Carried on reads too: harmless there, and it keeps every
+  // v0 call on ONE header seam instead of a second write-only header path.
+  const agent = process.env.VIBEFLOW_ACTOR?.trim();
+  return {
+    Authorization: `Bearer ${auth.token}`,
+    ...scopeHeaderFor(auth.workspaceId),
+    ...(agent !== undefined && agent !== ""
+      ? { "X-Vibeflow-Agent": agent }
+      : {}),
+  };
 }
 
 /**

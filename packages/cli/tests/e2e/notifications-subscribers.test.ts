@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { serveWithPort } from "../helpers/serve-with-port.js";
 import { CLI_ENTRY, isolatedCliEnv } from "./spawn-isolated.js";
 import { ensureTaskDirs } from "../../src/core/tasks.js";
-import { writeConfig } from "../../src/core/config.js";
+import { readConfig, writeConfig } from "../../src/core/config.js";
 import type { ServeInstance } from "../../src/server/server.js";
 import type { SubscriberSnapshot } from "../../src/core/subscribers.js";
 
@@ -266,5 +266,47 @@ describe("vibeflow notifications --follow as a subscriber", () => {
       subscribers: [],
     });
     expect(stderr).not.toContain("at ");
+  }, 40_000);
+
+  it("finds a custom serve port with no flag (serve publishes config.json)", async () => {
+    // Ticket xy58j31z: `serve -p <port>` publishes the port it BOUND; the
+    // follower reads `<project>/.vibeflow/config.json` (default 3700). No
+    // writeConfig here — that is the whole point.
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir,
+      _testToken: null,
+      _testWorkspace: null,
+    });
+    const port = Number(new URL(instance.url).port);
+    expect(readConfig(projectDir).port).toBe(port);
+
+    child = spawn(
+      process.execPath,
+      [CLI_ENTRY, "notifications", "--follow", "--local"],
+      {
+        cwd: projectDir,
+        env: isolatedCliEnv({
+          home: cliHome,
+          cwd: projectDir,
+          env: { VIBEFLOW_EVENTS: "1", VIBEFLOW_ACTOR: "e2e-port-watcher" },
+        }),
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    const exited = new Promise<number | null>((resolve) => {
+      child!.on("close", (code) => resolve(code));
+    });
+
+    const registered = await waitForSubscribers(
+      (snapshot) => snapshot.total === 1,
+      "the follower to register on the published port",
+    );
+    expect(registered.byAgent).toEqual([
+      { agent: "e2e-port-watcher", count: 1 },
+    ]);
+
+    child.kill("SIGINT");
+    expect(await exited).toBe(0);
   }, 40_000);
 });

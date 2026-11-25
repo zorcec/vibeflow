@@ -118,9 +118,11 @@ export function activityFromEvent(
 
 function localOrigin(projectDir: string): string {
   // The served port lives in `<project>/.vibeflow/config.json` (default
-  // 3700) — the same file `verify` and the screenshot URLs read. A board
-  // started on a non-default port is not discoverable here; the heartbeat
-  // retries, so a later match still registers.
+  // 3700) — the same file `verify` and the screenshot URLs read. `serve`
+  // PUBLISHES the port it bound on startup (ticket xy58j31z), so a board on
+  // a custom `-p <port>` is discoverable with no follower flag. If the file
+  // names a port nobody is serving, registration fails as a dim warning and
+  // the heartbeat retries — the feed keeps working either way.
   return `http://localhost:${readConfig(projectDir).port}`;
 }
 

@@ -128,7 +128,7 @@ interface Follower {
   stop: () => Promise<number | null>;
 }
 
-function startFollower(): Follower {
+function startFollower(envOverrides: Record<string, string> = {}): Follower {
   const child = spawn(
     process.execPath,
     [CLI_ENTRY, "notifications", "--online", "--follow", "--json"],
@@ -141,6 +141,7 @@ function startFollower(): Follower {
           VIBEFLOW_API_URL: baseUrl,
           VIBEFLOW_EVENTS: "1",
           VIBEFLOW_HOOKS: "0",
+          ...envOverrides,
         },
       }),
     },
@@ -290,6 +291,58 @@ describe("notifications --follow resilience (e2e, failing HTTP double)", () => {
       expect(follower.stderr()).toContain("HTTP 401");
     } finally {
       if (follower.child.exitCode === null) follower.child.kill("SIGKILL");
+    }
+  });
+});
+
+/**
+ * Self-suppression on the HOSTED feed (ticket kzxaq0fd). `actor` is the
+ * credential owner (shared by every agent on one PAT); `agent` is the
+ * caller-declared writer the hosted route threads from `X-Vibeflow-Agent`
+ * into the ring. The follower filters on `agent` ONLY — the same binary and
+ * the same loop as the local path, so this pins the delivery rule on a
+ * hosted-shaped payload without a stack.
+ */
+describe("notifications --follow self-suppression (hosted feed)", () => {
+  it("suppresses its own agent's event; a peer's and an unidentified one pass", async () => {
+    const ts = "2026-11-25T10:00:00.000Z";
+    respond = (res) =>
+      json(res, 200, {
+        notifications: [
+          { id: "evt_own", ts, type: "task.comment", taskId: "t1", actor: "user-1", agent: "pi-a" },
+          { id: "evt_peer", ts, type: "task.comment", taskId: "t1", actor: "user-1", agent: "pi-b" },
+          { id: "evt_unknown", ts, type: "task.comment", taskId: "t1", actor: "user-1" },
+        ],
+        nextTs: ts,
+        earliestTs: ts,
+        gap: false,
+        truncated: false,
+        count: 3,
+      });
+
+    const a = startFollower({ VIBEFLOW_ACTOR: "pi-a" });
+    const b = startFollower({ VIBEFLOW_ACTOR: "pi-b" });
+    try {
+      await a.until(
+        () => a.stdout().includes("evt_peer") && a.stdout().includes("evt_unknown"),
+      );
+      await b.until(
+        () => b.stdout().includes("evt_own") && b.stdout().includes("evt_unknown"),
+      );
+      // At least one more poll each: a suppressed event must not appear late.
+      await new Promise((r) => setTimeout(r, 2_500));
+
+      expect(a.stdout()).not.toContain("evt_own");
+      expect(b.stdout()).not.toContain("evt_peer");
+      // The delivered payload keeps BOTH identities, so a consumer can decide
+      // for itself: `agent` names the writer, `actor` stays the token owner.
+      expect(a.stdout()).toContain('"agent":"pi-b"');
+      expect(a.stdout()).toContain('"actor":"user-1"');
+      expect(b.stdout()).toContain('"agent":"pi-a"');
+    } finally {
+      for (const follower of [a, b]) {
+        if (follower.child.exitCode === null) follower.child.kill("SIGKILL");
+      }
     }
   });
 });
