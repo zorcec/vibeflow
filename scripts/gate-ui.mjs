@@ -52,6 +52,23 @@ const steps = [
     cmd: ["pnpm", "--filter", "@vibeflow-tools/ui", "run", "test", "--", "overlay"],
     why: "hostile-host-CSS + token isolation, needs the prebuilt bundle",
   },
+  {
+    // The contrast ratchet used to live in `.github/workflows/a11y.yml`. GitHub
+    // Actions is not used in this repo at all (ticket cusivd86k), so the check
+    // moved here — this gate is the only "slow lane" that can afford a
+    // Storybook build plus composited measurements, and it already claims in
+    // its own header to run the a11y sweep.
+    //
+    // Why it must exist somewhere: `packages/ui/scripts/a11y-sweep.mjs` protects
+    // nothing if nothing runs it. A colour pair NOT in the allowance fails (a
+    // new regression cannot land) and a pair IN the allowance that no longer
+    // fails also fails (the file may only shrink). jsdom cannot composite, so
+    // this cannot be folded into the fast suite — the cost is real, and it is
+    // the price of measuring contrast honestly.
+    name: "contrast ratchet (a11y)",
+    cmd: ["pnpm", "--filter", "@vibeflow-tools/ui", "run", "test:a11y"],
+    why: "replaced the GitHub Actions workflow; needs the storybook build above",
+  },
 ];
 
 const results = [];
