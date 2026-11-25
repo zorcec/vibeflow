@@ -15,6 +15,7 @@ import {
 import { getApiUrl, surfacePath } from "../core/api-url.js";
 import { projectCommentText } from "../core/comment-projection.js";
 import type { AgentClaimRequestType } from "@vibeflow-tools/api-core";
+import { resolveAgentIdentity } from "../core/agent-identity.js";
 
 export type SaasResult<T> =
   | { ok: true; data: T }
@@ -233,7 +234,9 @@ async function getBearerHeaders(
   // cannot distinguish two agents; the "agent" default must never become
   // an identity. Carried on reads too: harmless there, and it keeps every
   // v0 call on ONE header seam instead of a second write-only header path.
-  const agent = process.env.VIBEFLOW_ACTOR?.trim();
+  // Ticket b7dvqr7z: the explicit variable, else the derived pi session id,
+  // so a hosted echo is suppressed without any operator configuration.
+  const agent = resolveAgentIdentity().id;
   return {
     Authorization: `Bearer ${auth.token}`,
     ...scopeHeaderFor(auth.workspaceId),

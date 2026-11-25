@@ -43,6 +43,7 @@ import {
   unregisterNotificationSubscriber,
   type SubscriberCallResult,
 } from "./core/notifications-subscribers.js";
+import { resolveAgentIdentity } from "./core/agent-identity.js";
 import {
   NOTIFICATIONS_DEDUPE_WINDOW,
   isCursorExpired,
@@ -8071,7 +8072,11 @@ async function followNotifications(
    * own writes (documented residual: silence must never come from an
    * unknown identity, or every unset agent would stop seeing its peers).
    */
-  const selfAgent = process.env.VIBEFLOW_ACTOR?.trim() || undefined;
+  // Ticket b7dvqr7z: $VIBEFLOW_ACTOR when set, else the pi session this
+  // follower descends from (pi-<pid>). Without it every agent write echoed
+  // back at its author; with a shared "agent" default instead we would hide
+  // a peer's write. No identity at all = suppress nothing.
+  const selfAgent = resolveAgentIdentity().id;
   /**
    * Remember a delivered id, keeping only the newest window. The feed is
    * at-least-once (inclusive `since`), so a memory is required; an unbounded

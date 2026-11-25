@@ -10,6 +10,7 @@ export default defineConfig({
       // temp projects — it changes board geometry (kanban reflow test).
       // The setup keeps installed Playwright browsers visible (see file).
       "./tests/e2e/setup/hermetic-home.ts",
+      "./tests/setup/disable-agent-identity.ts",
     ],
     // Flaky-bucket reporter (child f3b5058e) — reporting only, see vitest.config.ts.
     reporters: ["default", "./tests/helpers/flaky-bucket.ts"],

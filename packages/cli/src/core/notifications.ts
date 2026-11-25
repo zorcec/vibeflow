@@ -29,6 +29,7 @@ import type {
 // Type-only: `ConfirmedEffect` is the emitter's correlated activity+payload
 // pair. Erased at build, so the store never pulls the hook runner in.
 import type { ConfirmedEffect } from "./hooks/emit.js";
+import { resolveAgentIdentity } from "./agent-identity.js";
 
 /** Events kept on disk. Older lines are evicted (see {@link appendNotification}). */
 export const NOTIFICATIONS_MAX_EVENTS = 500;
@@ -100,21 +101,24 @@ export interface NotificationExtras {
 /**
  * Identity for an event an agent-caused surface emits (CLI, MCP, hosted
  * write): `$VIBEFLOW_ACTOR` when the operator set it, else the historical
- * "agent" actor default.
+ * "agent" actor label — plus `agent`, the identity the follower matches to
+ * suppress its own writes.
  *
- * `agent` rides the event ONLY when the variable is explicitly set. The
- * "agent" default is shared by every unidentified agent, so stamping it as
- * an identity would make a follower suppress a PEER's event — trading noise
- * for blindness. An absent `agent` is the honest "I cannot prove whose write
- * this was" (residual: without the variable, self-notifications remain).
+ * `agent` comes from {@link resolveAgentIdentity}: the explicit variable, or
+ * the pi session this process descends from (`pi-<pid>`, ticket b7dvqr7z).
+ * The "agent" LABEL is shared by every unidentified agent, so it must never
+ * become the identity — that would suppress a peer's event, trading noise for
+ * blindness. No resolvable identity means no `agent` field at all, and the
+ * follower then suppresses nothing (the honest residual).
  */
 export function notificationIdentity(
   env: NodeJS.ProcessEnv = process.env,
 ): NotificationExtras {
   const explicit = env["VIBEFLOW_ACTOR"]?.trim();
+  const identity = resolveAgentIdentity(env);
   return {
     actor: explicit !== undefined && explicit !== "" ? explicit : "agent",
-    ...(explicit !== undefined && explicit !== "" ? { agent: explicit } : {}),
+    ...(identity.id !== undefined ? { agent: identity.id } : {}),
   };
 }
 

@@ -7,7 +7,7 @@ export default defineConfig({
     // threads-pool workers freeze os.homedir() at spawn, so the redirect
     // must happen in the main process before workers exist. See the file.
     globalSetup: ["./tests/setup/global-hermetic-home.ts"],
-    setupFiles: ["./tests/setup/disable-telemetry.ts"],
+    setupFiles: ["./tests/setup/disable-telemetry.ts", "./tests/setup/disable-agent-identity.ts"],
     // Flaky-bucket reporter (child f3b5058e): alongside default output,
     // failures in `@flaky`-marked specs print as FLAKY (not failing the
     // gate) and append to the flake log. Reporting only — never alters

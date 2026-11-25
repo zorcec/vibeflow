@@ -11,7 +11,7 @@ export default defineConfig({
     // Hermetic HOME (ticket cc18a82d) — globalSetup, NOT setupFiles: see
     // vitest.config.ts. The integration flow reaches the mode resolver.
     globalSetup: ["./tests/setup/global-hermetic-home.ts"],
-    setupFiles: ["./tests/setup/disable-telemetry.ts"],
+    setupFiles: ["./tests/setup/disable-telemetry.ts", "./tests/setup/disable-agent-identity.ts"],
     // Flaky-bucket reporter (child f3b5058e) — reporting only, see vitest.config.ts.
     reporters: ["default", "./tests/helpers/flaky-bucket.ts"],
     pool: "threads",

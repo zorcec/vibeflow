@@ -20,6 +20,7 @@ export default defineConfig({
       // Hermetic HOME (bug 072d6a8a): in-process servers must not merge the
       // operator's real ~/.vibeflow/settings.json into temp task stores.
       "./tests/e2e/setup/hermetic-home.ts",
+      "./tests/setup/disable-agent-identity.ts",
     ],
     // Flaky-bucket reporter (child f3b5058e) — reporting only, see vitest.config.ts.
     reporters: ["default", "./tests/helpers/flaky-bucket.ts"],
