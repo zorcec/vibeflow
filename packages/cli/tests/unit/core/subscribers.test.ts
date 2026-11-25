@@ -40,6 +40,7 @@ describe("local notification subscriber registry", () => {
       total: 0,
       byUser: [],
       byAgent: [],
+      subscribers: [],
     });
 
     registerSubscriber(BOARD, sub("sub_a"), T0);
@@ -52,7 +53,82 @@ describe("local notification subscriber registry", () => {
         { agent: "agent", count: 1 },
         { agent: "claude", count: 1 },
       ],
+      subscribers: [
+        {
+          subscriberId: "sub_b",
+          user: "local",
+          agent: "claude",
+          registeredAt: T0 + 1,
+          lastSeenAt: T0 + 1,
+        },
+        {
+          subscriberId: "sub_a",
+          user: "local",
+          agent: "agent",
+          registeredAt: T0,
+          lastSeenAt: T0,
+        },
+      ],
     });
+  });
+
+  it("stores the delivered activity and overwrites it on the next heartbeat", () => {
+    registerSubscriber(
+      BOARD,
+      {
+        ...sub("sub_a"),
+        activity: { type: "task.claim", taskId: "task_a", at: T0 + 5 },
+      },
+      T0,
+    );
+    expect(listSubscribers(BOARD, T0).subscribers[0]?.activity).toEqual({
+      type: "task.claim",
+      taskId: "task_a",
+      at: T0 + 5,
+    });
+
+    registerSubscriber(
+      BOARD,
+      {
+        ...sub("sub_a"),
+        activity: { type: "task.comment", taskId: "task_b", at: T0 + 30 },
+      },
+      T0 + SUBSCRIBER_HEARTBEAT_MS,
+    );
+    // The latest delivery replaced the previous one — nothing accumulates.
+    expect(
+      listSubscribers(BOARD, T0 + SUBSCRIBER_HEARTBEAT_MS).subscribers[0]
+        ?.activity,
+    ).toEqual({ type: "task.comment", taskId: "task_b", at: T0 + 30 });
+
+    // A heartbeat without activity clears it: the entry always shows what the
+    // LAST heartbeat knew, never a stale delivery.
+    registerSubscriber(BOARD, sub("sub_a"), T0 + SUBSCRIBER_HEARTBEAT_MS * 2);
+    expect(
+      listSubscribers(
+        BOARD,
+        T0 + SUBSCRIBER_HEARTBEAT_MS * 2,
+      ).subscribers[0]?.activity,
+    ).toBeUndefined();
+  });
+
+  it("lists the most recent delivery first and drops expired rows", () => {
+    registerSubscriber(
+      BOARD,
+      { ...sub("sub_a"), activity: { type: "task.claim", at: T0 + 70 } },
+      T0,
+    );
+    registerSubscriber(BOARD, sub("sub_b", "claude"), T0 + 80);
+
+    // Activity outranks a newer heartbeat; the follower with none goes last.
+    expect(
+      listSubscribers(BOARD, T0 + 80).subscribers.map((s) => s.subscriberId),
+    ).toEqual(["sub_a", "sub_b"]);
+
+    // TTL still evicts, and the row leaves the list with the aggregate.
+    const expired = listSubscribers(BOARD, T0 + 80 + SUBSCRIBER_TTL_MS);
+    expect(expired.total).toBe(0);
+    expect(expired.subscribers).toEqual([]);
   });
 
   it("re-registering the same id is idempotent and refreshes liveness", () => {
@@ -93,6 +169,15 @@ describe("local notification subscriber registry", () => {
       total: 1,
       byUser: [{ user: "local", agents: 1 }],
       byAgent: [{ agent: "claude", count: 1 }],
+      subscribers: [
+        {
+          subscriberId: "sub_b",
+          user: "local",
+          agent: "claude",
+          registeredAt: T0,
+          lastSeenAt: T0,
+        },
+      ],
     });
   });
 

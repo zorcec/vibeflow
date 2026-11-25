@@ -7,8 +7,10 @@
 
 A compact pill in the board header (`Watching N`, next to the existing action
 pills) counts the agents currently subscribed to the board's notification feed.
-Clicking it opens a breakdown of `user — N agents`. It is read-only; a browser
-tab is never counted as a watcher.
+Clicking it lists the live followers and, for each, the last event it actually
+delivered (`task.claim ifhh7q2 · 12 s ago`), falling back to `user — N agents`
+when an older board answers counts only. It is read-only; a browser tab is
+never counted as a watcher.
 
 **A subscriber is an explicit follower**, not a socket:
 
@@ -21,6 +23,11 @@ tab is never counted as a watcher.
 - `subscriberId` is random per follower process; `agent` is `$VIBEFLOW_ACTOR`
   when set, else `agent`; the user label is the authenticated account's name
   (else email) on the hosted board, and `local` on the local board.
+- `activity` (optional) is the last feed event the follower DELIVERED —
+  `{ taskId?, type?, at }`, where `at` is the delivery time, never the event's
+  own timestamp. A follower that has delivered nothing sends none; a malformed
+  one is dropped, never a failed heartbeat. The UI derives "idle, watching"
+  from a live heartbeat with a stale delivery; the registry only reports facts.
 
 **Routes (both surfaces, 1:1):**
 
@@ -30,6 +37,8 @@ tab is never counted as a watcher.
   local board's existing rule). The badge reads the local board's route; the
   hosted board passes `X-Vibeflow-Scope`.
 
-`POST` is also the heartbeat (`{ subscriberId, agent }`); `GET` answers
-`{ total, byUser: [{ user, agents }], byAgent: [{ agent, count }] }`; `DELETE`
+`POST` is also the heartbeat (`{ subscriberId, agent, activity? }`); `GET`
+answers `{ total, byUser: [{ user, agents }], byAgent: [{ agent, count }],
+subscribers: [{ subscriberId, user, agent, registeredAt, lastSeenAt,
+activity? }] }` (the aggregates are unchanged for older consumers); `DELETE`
 is idempotent (`{ removed, total }`) so a retrying follower is not an error.

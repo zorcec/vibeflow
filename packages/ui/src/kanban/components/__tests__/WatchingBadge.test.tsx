@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
 /**
  * Watching badge (ticket cgor65lmpv31cib1ef9zce5m): the header count of live
- * followers of the board's notification feed, and the per-user breakdown on
- * click.
+ * followers of the board's notification feed, and on click the live followers
+ * with what each last delivered (ticket ifhh7q2).
  *
  * The component is transport-agnostic (the host passes the endpoint +
  * headers), so these tests drive a stubbed `fetch` and pin the contract the
  * badge must honor: nothing painted before a successful read (no false 0), the
- * last good snapshot survives a transient failure, polling refreshes it, and
- * the popover names each user with its agent count.
+ * last good snapshot survives a transient failure, polling refreshes it, the
+ * popover lists each subscriber's activity, and a COUNTS-ONLY snapshot from an
+ * older board still renders its per-user breakdown.
  */
 import React from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
@@ -30,6 +31,24 @@ function body(total: number, rows: Array<{ user: string; agents: number }>) {
     total,
     byUser: rows,
     byAgent: rows.map((row) => ({ agent: "agent", count: row.agents })),
+  };
+}
+
+function withSubscribers(
+  subscribers: Array<{
+    subscriberId: string;
+    user: string;
+    agent: string;
+    registeredAt: number;
+    lastSeenAt: number;
+    activity?: { type?: string; taskId?: string; at: number };
+  }>,
+) {
+  return {
+    total: subscribers.length,
+    byUser: subscribers.map((s) => ({ user: s.user, agents: 1 })),
+    byAgent: subscribers.map((s) => ({ agent: s.agent, count: 1 })),
+    subscribers,
   };
 }
 
@@ -82,7 +101,9 @@ describe("WatchingBadge", () => {
     ).toBeInTheDocument();
   });
 
-  it("opens a popover that names each user and its agent count", async () => {
+  it("opens a popover that names each user and its agent count (older board, no subscribers)", async () => {
+    // A snapshot WITHOUT the `subscribers` list is what an older board answers.
+    // It must keep rendering its counts instead of blanking the popover.
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
@@ -119,6 +140,97 @@ describe("WatchingBadge", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("lists each live subscriber with its last delivered event and age", async () => {
+    const now = Date.now();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        ok(
+          withSubscribers([
+            {
+              subscriberId: "sub_live_1",
+              user: "zorcec",
+              agent: "claude",
+              registeredAt: now - 60_000,
+              lastSeenAt: now - 2_000,
+              activity: {
+                type: "task.claim",
+                taskId: "ifhh7q2jukxhqcrs5kfo6mb8",
+                at: now - 12_400,
+              },
+            },
+          ]),
+        ),
+      ),
+    );
+
+    render(
+      <WatchingBadge endpoint="/api/v0/notifications/subscribers" />,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Watching 1 agent" }),
+    );
+
+    const popover = screen.getByRole("dialog", {
+      name: "Agents following this board",
+    });
+    expect(popover).toHaveTextContent("claude");
+    // `<user> · <last event type> · <short task id>` on the activity line.
+    expect(popover).toHaveTextContent(/zorcec · task\.claim · ifhh7q2/);
+    // `shortId` is the kanban's 7-char display id.
+    expect(popover).not.toHaveTextContent("ifhh7q2jukxhqcrs5kfo6mb8");
+    expect(popover).toHaveTextContent("12 s ago");
+    expect(popover).toHaveTextContent("1 agent following");
+  });
+
+  it("derives idle wording from a live heartbeat with a stale delivery", async () => {
+    const now = Date.now();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        ok(
+          withSubscribers([
+            {
+              subscriberId: "sub_idle",
+              user: "zorcec",
+              agent: "pi",
+              registeredAt: now - 600_000,
+              // The heartbeat is alive; only the delivery is old.
+              lastSeenAt: now - 5_000,
+              activity: {
+                type: "task.comment",
+                taskId: "ifhh7q2jukxhqcrs5kfo6mb8",
+                at: now - 6 * 60_000,
+              },
+            },
+            {
+              subscriberId: "sub_fresh",
+              user: "zorcec",
+              agent: "claude",
+              registeredAt: now,
+              lastSeenAt: now,
+            },
+          ]),
+        ),
+      ),
+    );
+
+    render(
+      <WatchingBadge endpoint="/api/notifications/subscribers" />,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Watching 2 agents" }),
+    );
+
+    const popover = screen.getByRole("dialog", {
+      name: "Agents following this board",
+    });
+    expect(popover).toHaveTextContent("idle, watching");
+    // A follower that delivered nothing says so — it does not read as idle.
+    expect(popover).toHaveTextContent("no events yet");
+    expect(popover).toHaveTextContent("listening");
   });
 
   it("polls, and a failed poll keeps the last good count instead of clearing it", async () => {

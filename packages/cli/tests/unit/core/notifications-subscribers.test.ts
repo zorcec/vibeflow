@@ -14,9 +14,11 @@ import { tmpdir } from "node:os";
 import { writeConfig } from "../../../src/core/config.js";
 import {
   NOTIFICATION_SUBSCRIBERS_LOCAL_PATH,
+  activityFromEvent,
   createSubscriberIdentity,
   registerNotificationSubscriber,
   unregisterNotificationSubscriber,
+  type NotificationSubscriberIdentity,
 } from "../../../src/core/notifications-subscribers.js";
 import type { FetchTransport } from "../../../src/core/notifications-fetch.js";
 
@@ -41,6 +43,8 @@ describe("createSubscriberIdentity", () => {
     expect(first.subscriberId).toMatch(/^sub_[0-9a-f-]{36}$/);
     expect(first.subscriberId).not.toBe(second.subscriberId);
     expect(first.agent).toBe("agent");
+    // A fresh follower has delivered nothing: no activity, not a fake one.
+    expect(first.activity).toBeUndefined();
   });
 
   it("names the agent from VIBEFLOW_ACTOR, trimmed, with blank falling back", () => {
@@ -50,6 +54,30 @@ describe("createSubscriberIdentity", () => {
     expect(createSubscriberIdentity({ VIBEFLOW_ACTOR: "   " }).agent).toBe(
       "agent",
     );
+  });
+});
+
+describe("activityFromEvent", () => {
+  it("reports the delivered event's type and task with the DELIVERY time", () => {
+    const at = 1_764_000_000_000;
+    expect(
+      activityFromEvent(
+        {
+          id: "evt_1",
+          // An old event delivered now is activity NOW: the idle rule asks
+          // whether the follower delivered lately, not how old the event is.
+          ts: "2026-11-01T00:00:00.000Z",
+          type: "task.claim",
+          taskId: "ifhh7q2jukxhqcrs5kfo6mb8",
+        },
+        at,
+      ),
+    ).toEqual({ type: "task.claim", taskId: "ifhh7q2jukxhqcrs5kfo6mb8", at });
+  });
+
+  it("drops fields the event does not carry instead of inventing them", () => {
+    expect(activityFromEvent({ type: "", taskId: 7 }, 42)).toEqual({ at: 42 });
+    expect(activityFromEvent(null, 42)).toEqual({ at: 42 });
   });
 });
 
@@ -82,6 +110,60 @@ describe("registerNotificationSubscriber (local)", () => {
       subscriberId: "sub_unit_1",
       agent: "claude",
     });
+  });
+
+  it("sends no activity for a follower that has delivered nothing", async () => {
+    writeConfig(projectDir, { port: 3811 });
+    const bodies: unknown[] = [];
+    const result = await registerNotificationSubscriber(
+      projectDir,
+      "local",
+      { subscriberId: "sub_unit_1", agent: "claude" },
+      {
+        fetchImpl: async (_url, init) => {
+          bodies.push(JSON.parse(String(init.body)));
+          return response();
+        },
+      },
+    );
+    expect(result).toEqual({ ok: true });
+    // Absent, not null: the registry must read "no events yet".
+    expect(bodies[0]).toEqual({ subscriberId: "sub_unit_1", agent: "claude" });
+  });
+
+  it("the heartbeat carries the LATEST activity, overwriting the previous one", async () => {
+    writeConfig(projectDir, { port: 3811 });
+    const bodies: Array<Record<string, unknown>> = [];
+    const identity: NotificationSubscriberIdentity = {
+      subscriberId: "sub_unit_1",
+      agent: "claude",
+    };
+    const fetchImpl: FetchTransport = async (_url, init) => {
+      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return response();
+    };
+
+    identity.activity = { type: "task.claim", taskId: "task_a", at: 1_000 };
+    await registerNotificationSubscriber(projectDir, "local", identity, {
+      fetchImpl,
+    });
+    identity.activity = { type: "task.comment", taskId: "task_b", at: 2_000 };
+    await registerNotificationSubscriber(projectDir, "local", identity, {
+      fetchImpl,
+    });
+
+    expect(bodies).toEqual([
+      {
+        subscriberId: "sub_unit_1",
+        agent: "claude",
+        activity: { type: "task.claim", taskId: "task_a", at: 1_000 },
+      },
+      {
+        subscriberId: "sub_unit_1",
+        agent: "claude",
+        activity: { type: "task.comment", taskId: "task_b", at: 2_000 },
+      },
+    ]);
   });
 
   it("reports a non-2xx as a best-effort failure, never a throw", async () => {

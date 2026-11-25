@@ -366,6 +366,7 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     stories: [
       { name: "TwoAgents", covers: "renders the live count from the roster route; structural axe clean" },
       { name: "NoneYet", covers: "renders nothing (or 0) before the first successful read — never a wrong count" },
+      { name: "WithActivity", covers: "popover lists each follower's last event + short task id, and derives 'idle, watching' from a stale delivery" },
     ],
   },
   {

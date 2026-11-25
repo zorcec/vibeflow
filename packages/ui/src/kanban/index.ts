@@ -111,9 +111,14 @@ export { KanbanListView } from "./components/KanbanListView";
 export { Header as KanbanHeader } from "./components/Header";
 export {
   WatchingBadge,
+  WATCHING_IDLE_AFTER_MS,
   WATCHING_POLL_INTERVAL_MS,
 } from "./components/WatchingBadge";
-export type { WatchingSnapshot } from "./components/WatchingBadge";
+export type {
+  WatchingActivity,
+  WatchingSnapshot,
+  WatchingSubscriber,
+} from "./components/WatchingBadge";
 export { DetailPanel } from "./components/DetailPanel";
 export {
   TaskCard as KanbanTaskCard,

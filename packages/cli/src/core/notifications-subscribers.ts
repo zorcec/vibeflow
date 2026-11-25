@@ -18,6 +18,12 @@
  * Identity: one random `sub_<uuid>` per process (the unsubscribe key and the
  * idempotent re-register key) and the SAME actor spelling the notification
  * events already use — `$VIBEFLOW_ACTOR`, else "agent".
+ *
+ * Activity (ticket ifhh7q2): the identity also carries the LAST event this
+ * follower actually delivered — `{ taskId?, type?, at }` — so the badge can
+ * say what the follower is doing, not just that it exists. It is overwritten
+ * as the feed moves and is never inferred from the task assignee: the
+ * follower is a reader, and guessing who writes would be a lie.
  */
 
 import { randomUUID } from "node:crypto";
@@ -48,11 +54,23 @@ const SUBSCRIBER_REQUEST_TIMEOUT_MS = 5_000;
 /** On exit the user is waiting for Ctrl-C to finish; bound the goodbye. */
 const SUBSCRIBER_UNREGISTER_TIMEOUT_MS = 2_000;
 
+/** The last feed event this follower delivered, as the registry stores it. */
+export interface SubscriberActivity {
+  /** The task the delivered event named, when it named one. */
+  taskId?: string;
+  /** The delivered event's type (`task.claim`, `task.comment`, `verify`, …). */
+  type?: string;
+  /** When THIS follower delivered the event (epoch ms) — not the event's ts. */
+  at: number;
+}
+
 export interface NotificationSubscriberIdentity {
   /** `sub_` + a random UUID; unique per follower process. */
   subscriberId: string;
   /** `$VIBEFLOW_ACTOR`, else "agent" — the event actor rule. */
   agent: string;
+  /** Last delivered event; absent until the follower has delivered one. */
+  activity?: SubscriberActivity;
 }
 
 /** One `{ok}` result shape for register/heartbeat/unregister. */
@@ -74,6 +92,28 @@ export function createSubscriberIdentity(
     subscriberId: `sub_${randomUUID()}`,
     agent: actor !== undefined && actor !== "" ? actor : "agent",
   };
+}
+
+/**
+ * The activity a delivered event contributes: its own `type`/`taskId` plus the
+ * DELIVERY time. The event's `ts` is deliberately not used for `at` — a
+ * follower catching up on an old backlog is active now, and the badge's idle
+ * rule asks "has this follower delivered anything lately?", not "how old was
+ * the last event?".
+ */
+export function activityFromEvent(
+  event: unknown,
+  now: number = Date.now(),
+): SubscriberActivity {
+  const e = (event ?? {}) as { taskId?: unknown; type?: unknown };
+  const activity: SubscriberActivity = { at: now };
+  if (typeof e.taskId === "string" && e.taskId !== "") {
+    activity.taskId = e.taskId;
+  }
+  if (typeof e.type === "string" && e.type !== "") {
+    activity.type = e.type;
+  }
+  return activity;
 }
 
 function localOrigin(projectDir: string): string {
@@ -134,6 +174,9 @@ export async function registerNotificationSubscriber(
     body: JSON.stringify({
       subscriberId: identity.subscriberId,
       agent: identity.agent,
+      // Omitted until something was delivered: an absent activity is the
+      // honest "no events yet", not a fabricated idle timestamp.
+      ...(identity.activity !== undefined ? { activity: identity.activity } : {}),
     }),
   };
   try {

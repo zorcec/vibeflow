@@ -37,6 +37,7 @@ import {
 } from "./core/notifications-fetch.js";
 import {
   SUBSCRIBER_HEARTBEAT_MS,
+  activityFromEvent,
   createSubscriberIdentity,
   registerNotificationSubscriber,
   unregisterNotificationSubscriber,
@@ -7939,6 +7940,10 @@ program
  * shows a ghost. Registration is a SIDE call: its diagnostics go to stderr,
  * which keeps `--json` stdout pure, and a failure never stops the feed.
  *
+ * Each NEWLY emitted event also becomes the follower's activity (ticket
+ * ifhh7q2), carried on the next register/heartbeat: the badge can then name
+ * what this follower last read instead of only counting it.
+ *
  * The refusals are returned, not thrown: the caller owns the envelope and the
  * exit code, exactly like the one-shot read.
  */
@@ -8085,6 +8090,9 @@ async function followNotifications(
       const key = id ?? JSON.stringify(event);
       if (emitted.has(key)) continue;
       emitted.add(key);
+      // The last event this follower actually delivered — the only activity
+      // the follower can honestly report (it reads, it does not write).
+      subscriber.activity = activityFromEvent(event);
       const line = JSON.stringify(event);
       // The child always receives the raw event JSON; the terminal renderer
       // follows --json (NDJSON) or the human line.

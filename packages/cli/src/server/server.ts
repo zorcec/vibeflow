@@ -9,6 +9,7 @@ import {
   listSubscribers,
   registerSubscriber,
   removeSubscriber,
+  type SubscriberActivity,
 } from "../core/subscribers.js";
 import { assertRemovableTag, removeTagFromAllTasks } from "../core/remove-tag.js";
 import { getTaskRoot } from "../core/task-listing.js";
@@ -341,6 +342,38 @@ function isCommitPushed(
   return remoteShas.has(sha);
 }
 
+/** Longest activity label (event type) kept from a follower's heartbeat. */
+const MAX_SUBSCRIBER_ACTIVITY_LENGTH = 64;
+
+/**
+ * The optional `activity` a follower sends with its register/heartbeat. It is
+ * best-effort like the rest of the side-call: a malformed field is DROPPED
+ * (the follower still counts), never a 400 that would fail a heartbeat.
+ * Mirrors the hosted parser in the v0 route, 1:1.
+ */
+function parseSubscriberActivity(
+  raw: unknown,
+): SubscriberActivity | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  const a = raw as Record<string, unknown>;
+  if (typeof a.at !== "number" || !Number.isFinite(a.at) || a.at <= 0) {
+    return undefined;
+  }
+  const type =
+    typeof a.type === "string"
+      ? a.type.trim().slice(0, MAX_SUBSCRIBER_ACTIVITY_LENGTH)
+      : "";
+  const taskId =
+    typeof a.taskId === "string" ? a.taskId.trim().slice(0, 128) : "";
+  return {
+    ...(taskId !== "" ? { taskId } : {}),
+    ...(type !== "" ? { type } : {}),
+    at: a.at,
+  };
+}
+
 /** Registers all /api/tasks routes on the given Express app. */
 function registerTaskApi(
   app: express.Application,
@@ -429,11 +462,13 @@ function registerTaskApi(
       return;
     }
     const rawAgent = typeof body.agent === "string" ? body.agent.trim() : "";
+    const activity = parseSubscriberActivity(body.activity);
     registerSubscriber(projectDir, {
       subscriberId,
       agent: rawAgent === "" ? "agent" : rawAgent.slice(0, 64),
       // No account exists on the local board: one named row, never a guess.
       user: "local",
+      ...(activity !== undefined ? { activity } : {}),
     });
     res.json({ subscriberId, total: listSubscribers(projectDir).total });
   });

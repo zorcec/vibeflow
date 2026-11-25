@@ -97,13 +97,23 @@ describe("local subscriber routes", () => {
       total: 1,
     });
 
-    // Same id again = heartbeat, not a second watcher.
+    // Same id again = heartbeat, not a second watcher. It carries the
+    // follower's last delivered event (ticket ifhh7q2) with its DELIVERY time.
+    const activity = {
+      type: "task.claim",
+      taskId: "ifhh7q2jukxhqcrs5kfo6mb8",
+      at: Date.now(),
+    };
     const heartbeat = await fetch(
       `${instance.url}/api/notifications/subscribers`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subscriberId: "sub_manual", agent: "claude" }),
+        body: JSON.stringify({
+          subscriberId: "sub_manual",
+          agent: "claude",
+          activity,
+        }),
       },
     );
     expect(await heartbeat.json()).toEqual({
@@ -115,6 +125,16 @@ describe("local subscriber routes", () => {
       total: 1,
       byUser: [{ user: "local", agents: 1 }],
       byAgent: [{ agent: "claude", count: 1 }],
+      subscribers: [
+        {
+          subscriberId: "sub_manual",
+          user: "local",
+          agent: "claude",
+          registeredAt: expect.any(Number),
+          lastSeenAt: expect.any(Number),
+          activity,
+        },
+      ],
     });
 
     const del = await fetch(
@@ -239,7 +259,12 @@ describe("vibeflow notifications --follow as a subscriber", () => {
       (snapshot) => snapshot.total === 0,
       "the follower to unregister",
     );
-    expect(after).toEqual({ total: 0, byUser: [], byAgent: [] });
+    expect(after).toEqual({
+      total: 0,
+      byUser: [],
+      byAgent: [],
+      subscribers: [],
+    });
     expect(stderr).not.toContain("at ");
   }, 40_000);
 });

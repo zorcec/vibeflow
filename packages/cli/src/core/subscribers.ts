@@ -21,6 +21,10 @@
  * - Re-registering an id is idempotent: the original `registeredAt` is kept
  *   and only liveness/identity refresh. Two followers sharing one id (a
  *   copied process) are one subscriber, which is what the badge counts.
+ * - `activity` is the last event the follower DELIVERED (ticket ifhh7q2). It
+ *   is overwritten by every register/heartbeat, never accumulated: the badge
+ *   reports "what it last read", and a stale delivery must not outlive the
+ *   next heartbeat that carries the current one.
  */
 
 /** A follower's heartbeat window. Must be a multiple of the CLI's interval. */
@@ -29,6 +33,16 @@ export const SUBSCRIBER_TTL_MS = 90_000;
 /** How often `vibeflow notifications --follow` re-registers. */
 export const SUBSCRIBER_HEARTBEAT_MS = 30_000;
 
+/** The last feed event a follower delivered, as its identity reports it. */
+export interface SubscriberActivity {
+  /** The task the delivered event named, when it named one. */
+  taskId?: string;
+  /** The delivered event's type (`task.claim`, `task.comment`, `verify`, …). */
+  type?: string;
+  /** When the follower delivered it (epoch ms). */
+  at: number;
+}
+
 export interface SubscriberIdentity {
   /** Random per follower process (`sub_…`); the unsubscribe key. */
   subscriberId: string;
@@ -36,13 +50,29 @@ export interface SubscriberIdentity {
   agent: string;
   /** "local" on the local board: there is no account to name. */
   user: string;
+  /** Last delivered event; absent until the follower has delivered one. */
+  activity?: SubscriberActivity;
 }
 
-/** What the badge consumes: one row per user/agent with live followers. */
+/** One live follower, as the badge lists it. */
+interface SubscriberSnapshotEntry {
+  subscriberId: string;
+  user: string;
+  agent: string;
+  /** First registration of this id in this process (ms). */
+  registeredAt: number;
+  /** Last register/heartbeat (ms); the TTL clock. */
+  lastSeenAt: number;
+  activity?: SubscriberActivity;
+}
+
+/** What the badge consumes: live followers plus the legacy aggregates. */
 export interface SubscriberSnapshot {
   total: number;
   byUser: Array<{ user: string; agents: number }>;
   byAgent: Array<{ agent: string; count: number }>;
+  /** One row per live follower, most recent activity first. */
+  subscribers: SubscriberSnapshotEntry[];
 }
 
 interface SubscriberEntry extends SubscriberIdentity {
@@ -114,9 +144,10 @@ export function removeSubscriber(
 }
 
 /**
- * The live snapshot, aggregated for the badge: total followers, followers
- * per user label, and followers per agent label. Sorted highest-count first
- * then name, so the same registry always renders the same order.
+ * The live snapshot: one row per follower (for the badge's activity list)
+ * plus the legacy per-user/per-agent aggregates, which stay unchanged so an
+ * older consumer keeps working. Rows sort most recent activity first, then
+ * heartbeat, then id — deterministic for the same registry.
  */
 export function listSubscribers(
   boardId: string,
@@ -125,12 +156,27 @@ export function listSubscribers(
   const registry = purge(boardId, now);
   const users = new Map<string, number>();
   const agents = new Map<string, number>();
+  const subscribers: SubscriberSnapshotEntry[] = [];
   let total = 0;
   for (const entry of registry?.values() ?? []) {
     total += 1;
     users.set(entry.user, (users.get(entry.user) ?? 0) + 1);
     agents.set(entry.agent, (agents.get(entry.agent) ?? 0) + 1);
+    subscribers.push({
+      subscriberId: entry.subscriberId,
+      user: entry.user,
+      agent: entry.agent,
+      registeredAt: entry.registeredAt,
+      lastSeenAt: entry.lastSeenAt,
+      ...(entry.activity !== undefined ? { activity: entry.activity } : {}),
+    });
   }
+  subscribers.sort(
+    (a, b) =>
+      (b.activity?.at ?? 0) - (a.activity?.at ?? 0) ||
+      b.lastSeenAt - a.lastSeenAt ||
+      a.subscriberId.localeCompare(b.subscriberId),
+  );
   return {
     total,
     byUser: [...users.entries()]
@@ -139,5 +185,6 @@ export function listSubscribers(
     byAgent: [...agents.entries()]
       .map(([agent, count]) => ({ agent, count }))
       .sort((a, b) => b.count - a.count || a.agent.localeCompare(b.agent)),
+    subscribers,
   };
 }
