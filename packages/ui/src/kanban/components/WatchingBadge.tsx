@@ -29,7 +29,9 @@ import { shortId } from "../task-links";
  * missing route (an older board) never paints a wrong 0.
  */
 
-/** How often the badge re-reads the registry. TTL is 90 s, heartbeat 30 s. */
+/** How often the OPEN popover re-reads the registry. TTL is 90 s, heartbeat 30 s.
+ *  A closed badge does not poll at all — an idle board must stay silent (the
+ *  stage idle gate asserts zero requests over 30 s). */
 export const WATCHING_POLL_INTERVAL_MS = 10_000;
 
 /** A live heartbeat with no delivery for this long reads as "idle, watching". */
@@ -213,13 +215,27 @@ export function WatchingBadge({
       }
     };
     void load();
+    // Poll ONLY while the popover is open (ticket rc1fzqni's stage gate).
+    //
+    // This used to poll every 10 s forever, which broke the board's idle
+    // contract — `stage-board-idle.spec.ts` asserts ZERO requests during 30 s
+    // of idling and caught `/api/v0/notifications/subscribers` in the act. A
+    // badge nobody is looking at has no reason to ask: the first read paints
+    // the pill, opening the popover refreshes it, and while it is open the
+    // numbers stay live.
+    if (!open) {
+      return () => {
+        cancelled = true;
+        controller?.abort();
+      };
+    }
     const timer = setInterval(() => void load(), pollIntervalMs);
     return () => {
       cancelled = true;
       clearInterval(timer);
       controller?.abort();
     };
-  }, [endpoint, headersKey, pollIntervalMs]);
+  }, [endpoint, headersKey, pollIntervalMs, open]);
 
   // Close on outside click / Escape — a popover that traps the pointer is
   // worse than no popover on a phone.

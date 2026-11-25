@@ -42,3 +42,8 @@ answers `{ total, byUser: [{ user, agents }], byAgent: [{ agent, count }],
 subscribers: [{ subscriberId, user, agent, registeredAt, lastSeenAt,
 activity? }] }` (the aggregates are unchanged for older consumers); `DELETE`
 is idempotent (`{ removed, total }`) so a retrying follower is not an error.
+
+- The badge polls the roster only while its popover is **open**; a closed badge
+  reads once and stays quiet. The previous always-on 10 s poll broke the board's
+  idle contract (the stage idle gate asserts zero requests over 30 s) — found by
+  that gate, not by a user.

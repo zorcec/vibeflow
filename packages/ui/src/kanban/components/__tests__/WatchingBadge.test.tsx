@@ -7,7 +7,8 @@
  * The component is transport-agnostic (the host passes the endpoint +
  * headers), so these tests drive a stubbed `fetch` and pin the contract the
  * badge must honor: nothing painted before a successful read (no false 0), the
- * last good snapshot survives a transient failure, polling refreshes it, the
+ * last good snapshot survives a transient failure, polling while OPEN refreshes
+ * it (a closed badge never polls — an idle board must stay silent), the
  * popover lists each subscriber's activity, and a COUNTS-ONLY snapshot from an
  * older board still renders its per-user breakdown.
  */
@@ -233,7 +234,32 @@ describe("WatchingBadge", () => {
     expect(popover).toHaveTextContent("listening");
   });
 
-  it("polls, and a failed poll keeps the last good count instead of clearing it", async () => {
+  it("a closed badge does not poll — an idle board stays silent", async () => {
+    const fetchMock = vi.fn(() => ok(body(2, [{ user: "Alice", agents: 2 }])));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <WatchingBadge
+        endpoint="/api/notifications/subscribers"
+        pollIntervalMs={10}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Watching 2 agents" }),
+      ).toBeInTheDocument(),
+    );
+    // The stage idle gate asserts ZERO requests over 30 s while a board idles;
+    // this is that contract at unit scale (ticket rc1fzqni's gate caught the
+    // old always-on 10 s poll).
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 60));
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("polls while open, and a failed poll keeps the last good count", async () => {
     const fetchMock = vi
       .fn()
       .mockImplementationOnce(() => ok(body(1, [{ user: "Alice", agents: 1 }])))
@@ -250,6 +276,8 @@ describe("WatchingBadge", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Watching 1 agent" })),
     );
+    fireEvent.click(screen.getByRole("button", { name: "Watching 1 agent" }));
+
     await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(1));
     // The failure did not blank the badge.
     expect(
@@ -280,6 +308,9 @@ describe("WatchingBadge", () => {
         screen.getByRole("button", { name: "Watching 0 agents" }),
       ).toBeInTheDocument(),
     );
+    // Polling starts when the popover opens, so the count can be live while
+    // somebody is actually looking at it.
+    fireEvent.click(screen.getByRole("button", { name: "Watching 0 agents" }));
     await waitFor(() =>
       expect(
         screen.getByRole("button", { name: "Watching 1 agent" }),
