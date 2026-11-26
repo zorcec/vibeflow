@@ -7943,8 +7943,10 @@ program
  * It is also a SUBSCRIBER (ticket cgor65lmpv31cib1ef9zce5m): once the backend
  * is resolved, the follower registers with the board's subscriber registry,
  * heartbeats every {@link SUBSCRIBER_HEARTBEAT_MS}, and unregisters on the way
- * out (SIGINT/SIGTERM and a failed feed read) so the "Watching" badge never
- * shows a ghost. Registration is a SIDE call: its diagnostics go to stderr,
+ * out (SIGHUP, SIGINT/SIGTERM, a dead parent, a broken stdout pipe, and a
+ * failed feed read) so the "Watching" badge never shows a ghost — including
+ * the case that actually bit the owner: closing the harness left the follower
+ * orphaned and heartbeating forever (ticket lf6ekg9l). Registration is a SIDE call: its diagnostics go to stderr,
  * which keeps `--json` stdout pure, and a failure never stops the feed.
  *
  * Each NEWLY emitted event also becomes the follower's activity (ticket
@@ -7954,6 +7956,13 @@ program
  * The refusals are returned, not thrown: the caller owns the envelope and the
  * exit code, exactly like the one-shot read.
  */
+/**
+ * How often the follower asks whether it still has a parent (ticket lf6ekg9l).
+ * Short enough that a closed harness clears the badge in seconds rather than
+ * after the 90 s subscriber TTL, long enough to be invisible in a process list.
+ */
+const ORPHAN_CHECK_MS = 2_000;
+
 async function followNotifications(
   projectDir: string,
   opts: {
@@ -7993,6 +8002,7 @@ async function followNotifications(
       clearInterval(heartbeat);
       heartbeat = null;
     }
+    clearInterval(orphanWatch);
   };
 
   let stopping = false;
@@ -8033,8 +8043,34 @@ async function followNotifications(
       process.exit(ExitCode.GENERAL);
     });
   }
+  // SIGHUP is how a follower usually dies in practice: closing the terminal
+  // that runs it, or the harness that spawned it going away. Node's default
+  // for it is immediate exit WITHOUT running any handler — so the unregister
+  // never happened and the "Watching" badge kept a ghost (ticket lf6ekg9l).
+  process.once("SIGHUP", onSignal);
   process.once("SIGINT", onSignal);
   process.once("SIGTERM", onSignal);
+
+  // Being ORPHANED is the other silent death: when pi (or the shell) exits
+  // without stopping its children — a hard kill, a closed window — the
+  // follower is reparented and keeps heartbeating forever, so an agent that
+  // closed its harness stays on the watching list for good, not just for the
+  // TTL. A follower belongs to the session that watches; when that session is
+  // gone, it goes. (A watcher that must outlive its parent belongs under a
+  // supervisor, where the parent pid is a real supervisor.)
+  const parentPid = process.ppid;
+  const orphanWatch = setInterval(() => {
+    if (stopping) return;
+    if (process.ppid !== parentPid) onSignal();
+  }, ORPHAN_CHECK_MS);
+  orphanWatch.unref?.();
+
+  // A dead reader on our stdout (the harness closed its pipe) must stop us
+  // gracefully too: without this the write throws EPIPE as an uncaught error
+  // and the process dies with a stack trace and no unregister.
+  process.stdout.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EPIPE") onSignal();
+  });
 
   const sendRegistration = (nextTarget: NotificationTarget): void => {
     // A signal may already be unwinding; never start a new registration into

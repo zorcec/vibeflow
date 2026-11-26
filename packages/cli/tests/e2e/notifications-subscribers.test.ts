@@ -14,7 +14,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { serveWithPort } from "../helpers/serve-with-port.js";
@@ -266,6 +266,105 @@ describe("vibeflow notifications --follow as a subscriber", () => {
       subscribers: [],
     });
     expect(stderr).not.toContain("at ");
+  }, 40_000);
+
+  it("unregisters on SIGHUP — closing the terminal must not leave a ghost", async () => {
+    // SIGHUP is the signal a closed terminal or a dying harness actually sends,
+    // and Node's default for it is exit WITHOUT running handlers — which is how
+    // the owner ended up with an agent still on the watching list after closing
+    // the harness (ticket lf6ekg9l).
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir,
+      _testToken: null,
+      _testWorkspace: null,
+    });
+    const port = Number(new URL(instance.url).port);
+    writeConfig(projectDir, { port });
+
+    child = spawn(
+      process.execPath,
+      [CLI_ENTRY, "notifications", "--follow", "--local"],
+      {
+        cwd: projectDir,
+        env: isolatedCliEnv({
+          home: cliHome,
+          cwd: projectDir,
+          env: { VIBEFLOW_EVENTS: "1", VIBEFLOW_ACTOR: "e2e-hup" },
+        }),
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    const exited = new Promise<number | null>((resolve) => {
+      child!.on("close", (code) => resolve(code));
+    });
+
+    await waitForSubscribers((s) => s.total === 1, "the follower to register");
+    child.kill("SIGHUP");
+    expect(await exited).toBe(0);
+    const after = await waitForSubscribers(
+      (s) => s.total === 0,
+      "the follower to unregister after SIGHUP",
+    );
+    expect(after.total).toBe(0);
+  }, 40_000);
+
+  it("exits when its parent dies (a hard-killed harness leaves no ghost)", async () => {
+    // The real-world case: pi is killed (or the window closes) and the follower
+    // is reparented. It used to keep heartbeating forever, so the agent stayed
+    // on the watching list permanently. The wrapper gives the follower a
+    // throwaway parent, and its stdio is ignored so ONLY the orphan watchdog
+    // can stop it — a broken pipe must not be what makes this test pass.
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir,
+      _testToken: null,
+      _testWorkspace: null,
+    });
+    const port = Number(new URL(instance.url).port);
+    writeConfig(projectDir, { port });
+
+    const wrapperPath = join(projectDir, "orphan-wrapper.mjs");
+    writeFileSync(
+      wrapperPath,
+      `
+import { spawn } from "node:child_process";
+const [entry, ...args] = process.argv.slice(2);
+spawn(process.execPath, [entry, ...args], { stdio: ["ignore", "ignore", "ignore"] });
+setInterval(() => {}, 1000);
+`,
+      "utf8",
+    );
+
+    const wrapper = spawn(process.execPath, [
+      wrapperPath,
+      CLI_ENTRY,
+      "notifications",
+      "--follow",
+      "--local",
+    ], {
+      cwd: projectDir,
+      env: isolatedCliEnv({
+        home: cliHome,
+        cwd: projectDir,
+        env: { VIBEFLOW_EVENTS: "1", VIBEFLOW_ACTOR: "e2e-orphan" },
+      }),
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    try {
+      await waitForSubscribers((s) => s.total === 1, "the follower to register");
+      wrapper.kill("SIGKILL");
+      const after = await waitForSubscribers(
+        (s) => s.total === 0,
+        "the orphaned follower to unregister itself",
+        20_000,
+      );
+      expect(after.total).toBe(0);
+    } finally {
+      if (wrapper.exitCode === null && wrapper.signalCode === null) {
+        wrapper.kill("SIGKILL");
+      }
+    }
   }, 40_000);
 
   it("finds a custom serve port with no flag (serve publishes config.json)", async () => {
