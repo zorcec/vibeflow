@@ -155,6 +155,33 @@ describe("watching badge polls only while it is being looked at", () => {
     expect(title).toContain("pi-alpha");
   }, 40_000);
 
+  it("a follower that has delivered nothing for a long time reads 'idle, watching'", async () => {
+    // The honesty claim of the whole feature: the row says what the follower
+    // last DELIVERED, and once that is old it must stop pretending to be
+    // recent. A stale "47 min ago" is noise; "idle, watching" is the truth.
+    await registerFollower("sub_pw_stale", "pi-stale", {
+      taskId: "task-stale",
+      type: "task.comment",
+      at: Date.now() - 47 * 60 * 1000,
+    });
+
+    // Close-then-open, so the read happens AFTER the follower was registered.
+    // Leaving an already-open popover alone would show the snapshot from
+    // before this test and prove nothing.
+    if ((await page.$("#watching-popover")) !== null) {
+      await page.keyboard.press("Escape");
+      await page.waitForSelector("#watching-popover", { state: "detached", timeout: 8_000 });
+    }
+    await page.click("#watching-badge");
+    await page.waitForSelector("#watching-popover", { state: "visible", timeout: 8_000 });
+    const row = await page.$eval("#watching-popover", (el) => (el.textContent ?? "").trim());
+    expect(row).toContain("pi-stale");
+    expect(row.toLowerCase()).toContain("idle, watching");
+    // The stale minute count must not appear for that follower.
+    expect(row).not.toContain("47 min");
+    expect(row).not.toContain("47m");
+  }, 40_000);
+
   it("closing the popover stops the polling again", async () => {
     await page.keyboard.press("Escape");
     await page.waitForSelector("#watching-popover", { state: "detached", timeout: 8_000 });
