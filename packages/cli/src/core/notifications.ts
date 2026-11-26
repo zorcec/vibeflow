@@ -16,6 +16,7 @@ import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import {
   appendFileSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -189,7 +190,17 @@ type ActivityProjection<A extends HookActivity> = (
  * comment-only edit produced \`task.update (updatedAt)\` beside the real
  * \`task.comment\`, which is noise that trains a consumer to ignore the feed.
  * The same list is enforced on the hosted surface (`server/notifications/ring`)
- * — the two backends must stay 1:1.
+ * — the two backends must agree on it.
+ *
+ * On "1:1": the two backends share the envelope, the `since`/`limit` semantics
+ * and this noise policy, but they are NOT identical, and the claim was
+ * misleading (ticket t3og1r0u):
+ * - `gap` on an EMPTY store differs by design. Memory has no persistence, so
+ *   the hosted ring must call every empty store a gap; this log persists, so an
+ *   empty log is a gap only when the epoch marker proves it once held events.
+ * - the vocabulary differs at two edges: `task.claim` and `verify` are local
+ *   only, `task.file` is hosted only (a local file write is a `task.update`
+ *   whose `changed` names it).
  */
 const METADATA_ONLY_KEYS: ReadonlySet<string> = new Set([
   "updatedAt",
@@ -313,7 +324,11 @@ export interface NotificationReadResult {
   nextTs: string | null;
   /** Oldest event currently stored; null when the log is empty. */
   earliestTs: string | null;
-  /** True iff `since` is given and older than `earliestTs` (events evicted). */
+  /**
+   * "Events you asked for are gone": either `since` is older than the oldest
+   * stored event (eviction), or the log is empty while the epoch marker shows
+   * it once held events (deleted/cleared under a follower with a cursor).
+   */
   gap: boolean;
   /** True iff more events matched than `limit` allowed (the NEWEST win). */
   truncated: boolean;
@@ -340,6 +355,29 @@ export function newNotificationId(): string {
 /** `<projectDir>/.vibeflow/notifications.jsonl`. */
 export function notificationsPath(projectDir: string): string {
   return join(projectDir, PROTO_DIR, "notifications.jsonl");
+}
+
+/**
+ * `<projectDir>/.vibeflow/notifications.epoch` — "this log has held events
+ * before", so an EMPTY log can be told apart from a DESTROYED one (ticket
+ * t3og1r0u).
+ *
+ * The distinction is the whole reason the two backends disagreed: the hosted
+ * ring lives in memory, so an empty ring can only mean "a restart took your
+ * events" and it must report a gap. The local log persists, so an empty log
+ * usually means "nothing was ever written" and a gap would be a false alarm —
+ * EXCEPT when the file was deleted or cleared while a follower held a cursor,
+ * which is the one case where the follower was told nothing was lost while
+ * everything was. A marker written on the first append (and never removed by
+ * a log reset) makes that case detectable without pretending the two storages
+ * are the same.
+ *
+ * Deliberately NOT written on read: a read is a read. A project that had
+ * events before this change and had its log destroyed before any new event
+ * was appended still looks fresh — the documented residual.
+ */
+export function notificationsEpochPath(projectDir: string): string {
+  return join(projectDir, PROTO_DIR, "notifications.epoch");
 }
 
 /**
@@ -433,6 +471,12 @@ export function appendNotification(
   try {
     mkdirSync(join(projectDir, PROTO_DIR), { recursive: true });
     const filePath = notificationsPath(projectDir);
+    // First event ever: remember that this log has held events, so a later
+    // reset is reportable as a gap instead of as silence (ticket t3og1r0u).
+    const epochPath = notificationsEpochPath(projectDir);
+    if (!existsSync(epochPath)) {
+      writeFileSync(epochPath, new Date().toISOString() + "\n", "utf-8");
+    }
     appendFileSync(filePath, JSON.stringify(event) + "\n", "utf-8");
     trimStoredEvents(filePath);
   } catch {
@@ -487,8 +531,21 @@ export function readNotifications(
     notifications.length > 0
       ? notifications[notifications.length - 1]!.ts
       : (since ?? null);
+  // `gap` = "events you never saw are gone". Two ways that happens:
+  //   1. the log still holds events but `since` predates the oldest (eviction);
+  //   2. the log holds NOTHING while the epoch marker proves it once did —
+  //      i.e. it was deleted or cleared under a follower that has a cursor.
+  // A genuinely fresh project (no events, no marker) is neither: it reports no
+  // gap, because nothing was lost. The hosted ring cannot make that
+  // distinction — memory has no persistence — so it treats every empty store
+  // as a gap. That difference is intentional and documented in both headers.
+  const logDestroyed =
+    earliestTs === null &&
+    since !== undefined &&
+    existsSync(notificationsEpochPath(projectDir));
   const gap =
-    since !== undefined && earliestTs !== null && since < earliestTs;
+    since !== undefined &&
+    (logDestroyed || (earliestTs !== null && since < earliestTs));
   return {
     notifications,
     nextTs,

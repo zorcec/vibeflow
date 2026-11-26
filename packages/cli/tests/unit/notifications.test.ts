@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -28,6 +29,7 @@ import {
   notificationIdentity,
   notificationsEnabled,
   notificationsFromConfirmed,
+  notificationsEpochPath,
   notificationsPath,
   readNotifications,
   type NotificationEvent,
@@ -264,6 +266,49 @@ describe("appendNotification + readNotifications", () => {
     const stale = readNotifications(projectDir, { since: all[0]!.ts });
     expect(stale.gap).toBe(true);
     expect(stale.earliestTs).toBe(survivor.ts);
+  });
+
+  it("reports a DESTROYED log as a gap, not as silence (ticket t3og1r0u)", () => {
+    // The local twin of the hosted ring's "restart emptied the ring" warning.
+    // Before this, a follower holding a cursor against a deleted log was handed
+    // an empty page and told nothing had been lost, so it advanced past events
+    // that no longer existed. The epoch marker is what makes the two cases
+    // distinguishable — see `notificationsEpochPath`.
+    const kept = event({ taskId: "kept0001" });
+    appendNotification(projectDir, kept);
+    expect(readNotifications(projectDir, { since: kept.ts }).gap).toBe(false);
+
+    // Someone cleared the log (a reset, a bad script, a fresh clone) while the
+    // follower kept its cursor.
+    writeFileSync(notificationsPath(projectDir), "", "utf-8");
+
+    const destroyed = readNotifications(projectDir, { since: kept.ts });
+    expect(destroyed.gap).toBe(true);
+    expect(destroyed.earliestTs).toBeNull();
+    // Serious enough to be visible in the payload, not only in a boolean.
+    expect(destroyed.count).toBe(0);
+  });
+
+  it("does NOT warn about a fresh project that was simply never written", () => {
+    // No events, no marker: nothing was lost, so a `since` cursor must not
+    // invent a gap. This is the case the hosted ring cannot distinguish, and
+    // the reason the two backends deliberately differ here.
+    const fresh = readNotifications(projectDir, {
+      since: "2026-01-01T00:00:00.000Z",
+    });
+    expect(fresh.gap).toBe(false);
+    expect(fresh.earliestTs).toBeNull();
+    expect(existsSync(notificationsEpochPath(projectDir))).toBe(false);
+  });
+
+  it("keeps the marker across a reset, so the warning survives a second look", () => {
+    appendNotification(projectDir, event({ taskId: "once0001" }));
+    expect(existsSync(notificationsEpochPath(projectDir))).toBe(true);
+    writeFileSync(notificationsPath(projectDir), "", "utf-8");
+    expect(readNotifications(projectDir, { since: "2026-01-01T00:00:00.000Z" }).gap).toBe(true);
+    // Reading must not consume or recreate anything.
+    expect(existsSync(notificationsEpochPath(projectDir))).toBe(true);
+    expect(readNotifications(projectDir, { since: "2026-01-01T00:00:00.000Z" }).gap).toBe(true);
   });
 
   it("skips malformed and blank lines instead of failing the read", () => {
