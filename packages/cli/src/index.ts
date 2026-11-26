@@ -139,7 +139,7 @@ import { saasFailure, saasReadErrorMessage } from "./saas/failure.js";
 // onto the local Task shape for after-hook `task` snapshots.
 import { toLocalTask } from "./core/remote-task-store.js";
 import { readProjectPointer } from "./auth/project-pointer.js";
-import { readFileSync, existsSync, mkdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
 import { homedir } from "node:os";
 import chalk from "chalk";
@@ -4629,12 +4629,22 @@ program
           // instead of being fetched twice.
           const editMode = await getMode(dir);
           let editTargetId: string;
+          /**
+           * The resolved target itself, when the resolver already had it.
+           * Online mode gets it from the detail request, so the research
+           * `--report-file` probe can ask about the task it just resolved
+           * instead of re-reading the LOCAL store, which is empty online and
+           * made a correctly resolved ticket report `TASK_NOT_FOUND`
+           * (ticket ets0rzn7).
+           */
+          let editTargetTask: { id: string; type?: string | null } | undefined;
           let editLinkBoard: SaasTask[] | undefined;
           if (editMode === "saas") {
             const editWorkspace = readProjectPointer(dir);
             const editDetail = await fetchSaasTaskDetail(taskId, dir);
             if (editDetail.ok) {
               editTargetId = editDetail.data.task.id;
+              editTargetTask = editDetail.data.task;
             } else if (editDetail.error.code !== "TASK_NOT_FOUND") {
               const editReadMessage = saasReadErrorMessage(editDetail.error);
               if (opts.json) {
@@ -4834,9 +4844,17 @@ program
             // The target was already resolved to its full id above (ONE
             // resolver, either store), so the probe is an exact lookup —
             // never a second, possibly divergent prefix guess.
-            const reportTask = listTasks(resolve(dir)).find(
-              (t) => t.id === editTargetId,
-            );
+            //
+            // Which STORE that lookup reads is the whole of ticket ets0rzn7:
+            // this used to call the local store unconditionally, so on the
+            // hosted board (where local tasks live nowhere) a perfectly
+            // resolved ticket answered `Task not found`, and the documented
+            // Research submission could not be performed at all. The resolved
+            // object is reused when the resolver already had it — no second
+            // request, and no chance of the two disagreeing.
+            const reportTask =
+              editTargetTask ??
+              listTasks(resolve(dir)).find((t) => t.id === editTargetId);
             if (!reportTask) {
               if (opts.json) {
                 outputEnvelope({
@@ -5180,15 +5198,50 @@ program
             if (opts.dryRun) {
               dryRunReportName = basename(reportPath);
             } else {
-              const content = readFileSync(reportPath);
-              const { saveFile: saveTaskFile } = await import("./core/files.js");
-              saveTaskFile(
-                projectDir,
-                reportTaskId!,
-                basename(reportPath),
-                content,
+              // ONE upload path for both modes (ticket ets0rzn7). This used
+              // to call `saveTaskFile`, the local file store, which on the
+              // hosted board would have written the report beside a task the
+              // board does not own — the same local-only assumption as the
+              // probe above. `attachStandalone` is the operation `tasks
+              // --attach` uses; it picks the local store or the v0 upload, and
+              // it consumes the source exactly when the caller asks it to.
+              const reportCtx: OperationContext = {
+                projectDir: resolve(dir),
+                mode: editMode === "saas" ? "saas" : "local",
+                hookScope: handle.scope,
+              };
+              const reportUpload = await operations.attachStandalone(
+                reportCtx,
+                {
+                  id: reportTaskId!,
+                  source: {
+                    kind: "localPath",
+                    path: reportPath,
+                    cwd: process.cwd(),
+                  },
+                  // A report is a single well-known artefact, not a library of
+                  // attachments: re-running the transition replaces it rather
+                  // than refusing (the pre-ets0rzn7 local save also overwrote).
+                  onExisting: "replace",
+                  moveAfterSuccess: true,
+                },
               );
-              unlinkSync(reportPath);
+              if (!reportUpload.ok) {
+                const uploadErr = reportUpload.error;
+                outputEnvelope({
+                  ok: false,
+                  code: uploadErr.code,
+                  message: uploadErr.message,
+                  suggestion: uploadErr.suggestion,
+                  json: opts.json,
+                });
+                process.exitCode =
+                  uploadErr.code === "TASK_NOT_FOUND" ||
+                  uploadErr.code === "E_NOT_FOUND"
+                    ? ExitCode.NOT_FOUND
+                    : ExitCode.GENERAL;
+                return;
+              }
               if (!opts.json) {
                 console.log(
                   chalk.green(

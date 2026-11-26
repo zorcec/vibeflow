@@ -635,12 +635,6 @@ export const SURFACE_STORAGE_USES: Record<string, SurfaceStorageUse> = {
     reason:
       "Local tasks --edit writes --comment and the cannot-reason system comment inline after the task write. Owns to addComment (the comment input of updateTask when routed).",
   },
-  "src/index.ts saveFile": {
-    operation: "attachFile",
-    kind: "write-path",
-    reason:
-      "Research --report-file bytes are saved and the source consumed inline (dynamic import of core/files.js). Owns to attachFile; routing report submission through the shared operation removes this row.",
-  },
   "src/index.ts markTaskOpened": {
     operation: "getTask",
     kind: "write-path",
