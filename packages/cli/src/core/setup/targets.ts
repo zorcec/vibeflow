@@ -467,6 +467,12 @@ export default function (pi) {
   let eventsSeen = 0;
   let failure = null;
   let failureReported = false;
+  // Restart supervision (ticket qjsgsnhue): a follower that exits is restarted
+  // with backoff and RESUMES from the last delivered event, so a feed that
+  // drops during a long idle does not stay dropped for the rest of the session.
+  let restartTimer = null;
+  let restartAttempts = 0;
+  let stopping = false;
 
   function statusLine() {
     const parts = [
@@ -550,12 +556,45 @@ export default function (pi) {
     send(null);
   }
 
+  // Bounded ladder: a follower that cannot stay up must say so once and stop,
+  // not spin. Reset by the first line it delivers (see the data handler).
+  const RESTART_DELAYS = [1000, 2000, 5000, 15000, 30000, 60000];
+  const MAX_RESTARTS = 8;
+
+  function scheduleRestart(why) {
+    if (stopping || !enabled || restartTimer !== null) return;
+    if (restartAttempts >= MAX_RESTARTS) {
+      warn(
+        "vibeflow notifications stopped after " +
+          restartAttempts +
+          " restarts (" +
+          why +
+          ") — run 'vibeflow notifications --follow' in a terminal to see why.",
+      );
+      return;
+    }
+    const wait = RESTART_DELAYS[Math.min(restartAttempts, RESTART_DELAYS.length - 1)];
+    restartAttempts += 1;
+    restartTimer = setTimeout(function () {
+      restartTimer = null;
+      start();
+    }, wait);
+    if (typeof restartTimer.unref === "function") restartTimer.unref();
+  }
+
   function start() {
     if (!enabled || child !== null) return;
+    stopping = false;
     const command = CLI_ENTRY === null ? "vibeflow" : process.execPath;
     const args = CLI_ENTRY === null ? CLI_ARGS.slice() : [CLI_ENTRY].concat(CLI_ARGS);
-    // Skip the replay of the newest page: this session starts now.
-    args.push("--since", new Date().toISOString());
+    // The FIRST start of a session begins now (nothing older belongs to this
+    // session). Every later start resumes from the last event actually
+    // delivered: a follower that died must not skip what was published while it
+    // was down — that is the whole bug in ticket qjsgsnhue.
+    args.push(
+      "--since",
+      typeof lastEventTs === "string" ? lastEventTs : new Date().toISOString(),
+    );
     let spawned;
     try {
       // Follow the project this was installed for, unless the operator points
@@ -577,6 +616,10 @@ export default function (pi) {
     let buffered = "";
     spawned.stdout.setEncoding("utf8");
     spawned.stdout.on("data", function (chunk) {
+      // A line means the follower is healthy again: reset the ladder so a later
+      // failure reports immediately instead of being muted by the latch.
+      restartAttempts = 0;
+      failureReported = false;
       buffered += chunk;
       const lines = buffered.split("\\n");
       buffered = lines.pop() || "";
@@ -592,23 +635,40 @@ export default function (pi) {
           errorText(error) +
           ") — is \`vibeflow\` on PATH?",
       );
+      scheduleRestart("spawn error");
     });
-    spawned.on("exit", function (code) {
-      if (child === spawned) child = null;
-      connected = false;
-      if (code !== null && code !== 0) {
-        warn(
-          "vibeflow notifications exited with code " +
-            code +
-            " — run it in a terminal to see why.",
-        );
+    spawned.on("exit", function (code, signal) {
+      if (child === spawned) {
+        child = null;
+        connected = false;
       }
+      if (stopping) return;
+      // ANY exit is news — including a clean zero. The follower exits 0 on
+      // SIGHUP, on a closed stdout pipe and when its parent goes away (ticket
+      // lf6egk9l), so a silent clean exit is exactly how the feed disappears
+      // mid-session and nobody notices (ticket qjsgsnhue).
+      const how = signal ? "signal " + signal : "exit " + code;
+      warn(
+        "vibeflow notifications stopped (" +
+          how +
+          ")" +
+          (typeof lastEventTs === "string"
+            ? " — restarting from the last delivered event"
+            : " — restarting") +
+          ".",
+      );
+      scheduleRestart(how);
     });
   }
 
   // Idempotent: session_start/session_shutdown may pair up more than once
   // (reload, /new, /resume) and the child must never be leaked.
   function stop() {
+    stopping = true;
+    if (restartTimer !== null) {
+      clearTimeout(restartTimer);
+      restartTimer = null;
+    }
     const running = child;
     child = null;
     connected = false;

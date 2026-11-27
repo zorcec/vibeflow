@@ -3,6 +3,7 @@
 - Status: accepted
 - Date: 2026-10-25
 - Governed: `packages/cli/src/server/v0.ts`
+- Reviewed: 2026-11-27 (parity phase 1, ticket 0045949e: the local v0 surface now answers the SAME error envelope as the hosted one (`{ error, code, details? }`) instead of `{ error, message, expectedFormat, example }`. Paths, success bodies and this ADR's decision — project/changelog stay CLI-local — are untouched)
 - Reviewed: 2026-10-25
 - Decided by: owner (ticket 3bb51549f9ed825bfc8612ac181125)
 
