@@ -370,6 +370,17 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
     ],
   },
   {
+    component: "TaskActivityLog",
+    storyFile: "stories/kanban/task-activity-log.stories.tsx",
+    title: "Design System/Kanban/TaskActivityLog",
+    stories: [
+      { name: "Recent", covers: "rows carry their age and the header stamps the READ, so a list that stopped refreshing cannot look live" },
+      { name: "Empty", covers: "'no activity yet' only after a successful read, never during loading" },
+      { name: "Stale", covers: "a failed read shows the stale note + read age and never a false empty" },
+      { name: "Evicted", covers: "the feed's gap is repeated to the reader instead of implying a complete history" },
+    ],
+  },
+  {
     component: "AttentionBadge",
     storyFile: "stories/kanban/attention-badge.stories.tsx",
     title: "Design System/Kanban/AttentionBadge",

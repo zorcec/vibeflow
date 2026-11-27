@@ -119,6 +119,12 @@ export type {
   WatchingSnapshot,
   WatchingSubscriber,
 } from "./components/WatchingBadge";
+export {
+  TaskActivityLog,
+  TASK_ACTIVITY_LOG_LIMIT,
+  TASK_ACTIVITY_LOG_POLL_MS,
+} from "./components/TaskActivityLog";
+export type { TaskActivityEvent } from "./components/TaskActivityLog";
 export { DetailPanel } from "./components/DetailPanel";
 export {
   TaskCard as KanbanTaskCard,

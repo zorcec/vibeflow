@@ -1988,6 +1988,7 @@ function BoardApp() {
               commentVersion={commentVersion}
               fileVersion={fileVersion}
               allTasks={tasks}
+              activity={{ endpoint: "/api/notifications" }}
               onOpenTask={navigateToTask}
               onTabChange={(tab) => {
                 if (panelState.task) {

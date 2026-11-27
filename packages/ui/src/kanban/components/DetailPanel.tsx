@@ -26,6 +26,7 @@ import { CommentsInputArea } from "./shared/CommentsInputArea";
 import { ConfirmModal } from "./ConfirmModal";
 import RelationsSection from "./RelationsSection";
 import { VerifyIndicator, displayedVerifyState } from "./VerifyIndicator";
+import { TaskActivityLog } from "./TaskActivityLog";
 import { AttentionBadge } from "../../AttentionBadge";
 
 import { linkSetKey, tagSetKey, diffTagLists } from "../fieldChanges";
@@ -244,6 +245,14 @@ interface Props {
   /** Peers currently in the open task — compact avatar stack in the status row. */
   presence?: PresenceEntry[];
   /**
+   * Board's notification feed, for the per-task activity log (ticket
+   * ylgq1p5o). A HOST decision like the Watching badge's endpoint: the local
+   * board serves `/api/notifications`, the hosted board
+   * `/api/v0/notifications` with its scope header. Omitted = no log, never a
+   * guessed route.
+   */
+  activity?: { endpoint: string; headers?: Record<string, string> };
+  /**
    * Live binding to the shared description doc. While present (and not
    * adding), the doc is the single writer: the editor shows `text`, every
    * keystroke routes into the doc, and the whole-value description save is
@@ -312,6 +321,7 @@ export function DetailPanel({
   onActivityChange,
   externalLocalChanges = [],
   presence = [],
+  activity,
   onGoBack,
   onOpenTask,
   onTabChange,
@@ -1960,6 +1970,13 @@ export function DetailPanel({
                   </div>
                 )}
               </div>
+            )}
+            {!isAdd && task && activity !== undefined && (
+              <TaskActivityLog
+                endpoint={activity.endpoint}
+                headers={activity.headers}
+                taskId={task.id}
+              />
             )}
             {!isAdd && task && buildDpMetaItems(task).length > 0 && (
               // Ticket 6aa28fd6: meta chip row moved to the very bottom
