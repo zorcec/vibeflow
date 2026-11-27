@@ -24,6 +24,9 @@ import {
   appendConfirmedNotification,
   appendNotification,
   isOwnNotification,
+  isValidNotificationFilterValue,
+  NOTIFICATION_FILTER_MAX_LENGTH,
+  notificationStatusOf,
   newNotificationId,
   notificationFromActivity,
   notificationIdentity,
@@ -34,6 +37,7 @@ import {
   readNotifications,
   type NotificationEvent,
   type NotificationExtras,
+  type NotificationFilter,
 } from "../../src/core/notifications.js";
 import type {
   HookActivity,
@@ -136,6 +140,7 @@ describe("appendNotification + readNotifications", () => {
       gap: false,
       truncated: false,
       count: 0,
+      filteredCount: 0,
     });
   });
 
@@ -833,5 +838,228 @@ describe("appendConfirmedNotification", () => {
       ),
     ).toBeNull();
     expect(readNotifications(projectDir).count).toBe(0);
+  });
+});
+
+/**
+ * Subscription dimensions + the honest `filteredCount` (ticket p3tkodry).
+ *
+ * Three properties, in the order they can go wrong:
+ * - only matches are returned, and every dropped event is COUNTED, so a
+ *   filtered follower always learns that something was filtered (counts, never
+ *   silence);
+ * - a dimension this store does not know WIDENS (ignoring it can only return
+ *   more), while a known dimension with an impossible-to-store value is the
+ *   route's 400 — never a silent reinterpretation;
+ * - `nextTs` never advances past a dropped event, so changing the filter later
+ *   still reaches it. This is the subtle half: a cursor is not "the last event
+ *   in the page", it is the point up to which the caller has accounted for
+ *   EVERYTHING.
+ */
+describe("readNotifications — subscription filters", () => {
+  /** create(a), comment(a), create(b) — one per dimension worth matching. */
+  function seedBoard(): void {
+    appendNotification(
+      projectDir,
+      event({
+        ts: "2026-01-01T00:00:00.000Z",
+        type: "task.create",
+        taskId: "task-a",
+        to: { status: "todo" },
+      }),
+    );
+    appendNotification(
+      projectDir,
+      event({
+        ts: "2026-01-01T00:00:10.000Z",
+        type: "task.comment",
+        taskId: "task-a",
+        agent: "pi-a",
+        to: { commentId: "cmt-1" },
+      }),
+    );
+    appendNotification(
+      projectDir,
+      event({
+        ts: "2026-01-01T00:00:20.000Z",
+        type: "task.create",
+        taskId: "task-b",
+        to: { status: "in-progress" },
+      }),
+    );
+  }
+
+  it("returns only the matches and counts every dropped event", () => {
+    seedBoard();
+
+    const read = readNotifications(projectDir, { filter: { taskId: "task-a" } });
+
+    expect(read.notifications.map((e) => e.type)).toEqual([
+      "task.create",
+      "task.comment",
+    ]);
+    expect(read.count).toBe(2);
+    // 3 in the window, 2 matched — the follower is TOLD, not silently shorted.
+    expect(read.filteredCount).toBe(1);
+  });
+
+  it("counts nothing as filtered when the filter is absent (the old answer)", () => {
+    seedBoard();
+    const read = readNotifications(projectDir);
+    expect(read.count).toBe(3);
+    expect(read.filteredCount).toBe(0);
+    expect(read.nextTs).toBe("2026-01-01T00:00:20.000Z");
+  });
+
+  it("ANDs the dimensions — a match must satisfy every one of them", () => {
+    seedBoard();
+
+    const both = readNotifications(projectDir, {
+      filter: { taskId: "task-a", type: "task.comment" },
+    });
+    expect(both.notifications.map((e) => e.type)).toEqual(["task.comment"]);
+    expect(both.filteredCount).toBe(2);
+
+    const impossible = readNotifications(projectDir, {
+      filter: { taskId: "task-a", type: "task.create" },
+    });
+    expect(impossible.count).toBe(1);
+    expect(impossible.filteredCount).toBe(2);
+  });
+
+  it("reads `status` from a create's to.status and a claim's to.to", () => {
+    appendNotification(
+      projectDir,
+      event({ ts: "2026-01-01T00:00:00.000Z", type: "task.create", to: { status: "todo" } }),
+    );
+    appendNotification(
+      projectDir,
+      event({
+        ts: "2026-01-01T00:00:10.000Z",
+        type: "task.claim",
+        // task.claim names its destination as `to.to` ({from, to}).
+        to: { from: "todo", to: "in-progress" },
+      }),
+    );
+    // A local task.update carries only the changed KEYS, so it has no status
+    // to match — the documented edge (the hosted twin does carry values).
+    appendNotification(
+      projectDir,
+      event({ ts: "2026-01-01T00:00:20.000Z", type: "task.update", changed: ["status"] }),
+    );
+
+    const claimed = readNotifications(projectDir, {
+      filter: { status: "in-progress" },
+    });
+    expect(claimed.notifications.map((e) => e.type)).toEqual(["task.claim"]);
+    expect(claimed.filteredCount).toBe(2);
+    // An event with no status at all never satisfies a status filter.
+    expect(notificationStatusOf(event({ type: "task.update" }))).toBeUndefined();
+  });
+
+  it("matches `agent` only on an event that NAMES that agent", () => {
+    seedBoard();
+    const read = readNotifications(projectDir, { filter: { agent: "pi-a" } });
+    expect(read.notifications).toHaveLength(1);
+    expect(read.notifications[0]!.type).toBe("task.comment");
+    // An unnamed event is not "pi-a": naming a writer must never select the
+    // writes nobody claimed.
+    expect(read.filteredCount).toBe(2);
+  });
+
+  it("WIDENS on a dimension this store does not know", () => {
+    seedBoard();
+
+    // A newer client's dimension on an older store: ignoring it returns MORE
+    // than asked for. Narrowing (or throwing) would hide events.
+    const read = readNotifications(projectDir, {
+      filter: { tag: "urgent", taskId: "task-a" } as NotificationFilter,
+    });
+
+    expect(read.count).toBe(2);
+    expect(read.filteredCount).toBe(1);
+  });
+
+  it("treats an empty or blank dimension value as no constraint", () => {
+    seedBoard();
+    const read = readNotifications(projectDir, {
+      filter: { taskId: "", type: "   ", agent: undefined },
+    });
+    expect(read.count).toBe(3);
+    expect(read.filteredCount).toBe(0);
+  });
+
+  it("drops BEFORE the page size: a filtered event cannot crowd out a match", () => {
+    seedBoard();
+    // limit 1 with the newest two filtered: the answer is the one match, not
+    // an empty page (paging happens over the matches, never over the window).
+    const read = readNotifications(projectDir, {
+      limit: 1,
+      filter: { taskId: "task-a" },
+    });
+    expect(read.notifications.map((e) => e.taskId)).toEqual(["task-a"]);
+    expect(read.truncated).toBe(true);
+    expect(read.filteredCount).toBe(1);
+  });
+
+  it("pins nextTs at the oldest dropped event so a later filter still sees it", () => {
+    seedBoard();
+
+    // Filter away the OLDEST event; the newest two still come back.
+    const filtered = readNotifications(projectDir, {
+      filter: { type: "task.comment" },
+    });
+    expect(filtered.notifications.map((e) => e.type)).toEqual(["task.comment"]);
+    expect(filtered.filteredCount).toBe(2);
+    // NOT 00:00:10 (the last match): the two dropped events are behind us only
+    // if we are willing to forget them — so the cursor stays before them.
+    expect(filtered.nextTs).toBe("2026-01-01T00:00:00.000Z");
+
+    // The follower obeys the cursor, then drops its filter: the events it had
+    // filtered out are still ahead of it and ARE delivered.
+    const widened = readNotifications(projectDir, { since: filtered.nextTs! });
+    expect(widened.notifications.map((e) => e.taskId)).toEqual([
+      "task-a",
+      "task-a",
+      "task-b",
+    ]);
+    expect(widened.filteredCount).toBe(0);
+  });
+
+  it("keeps filtering INSIDE the time window only (filteredCount respects `since`)", () => {
+    seedBoard();
+    const read = readNotifications(projectDir, {
+      since: "2026-01-01T00:00:10.000Z",
+      filter: { type: "task.create" },
+    });
+    // Window = comment + create(b); 1 matched, 1 dropped. The older create(a)
+    // is outside the window and must not be counted as filtered.
+    expect(read.count).toBe(1);
+    expect(read.filteredCount).toBe(1);
+    expect(read.nextTs).toBe("2026-01-01T00:00:10.000Z");
+  });
+});
+
+/**
+ * The value validity the two routes share (ticket p3tkodry): a value that a
+ * store could never hold is refused, everything else is opaque.
+ */
+describe("isValidNotificationFilterValue", () => {
+  it("accepts the four real vocabularies", () => {
+    for (const value of ["abc12345", "task.comment", "in-progress", "pi-4242", "agent one"]) {
+      expect(isValidNotificationFilterValue(value)).toBe(true);
+    }
+  });
+
+  it("refuses control characters smuggled through a query string", () => {
+    expect(isValidNotificationFilterValue("a\u0000b")).toBe(false);
+    expect(isValidNotificationFilterValue("a\nb")).toBe(false);
+    expect(isValidNotificationFilterValue("a\tb")).toBe(false);
+  });
+
+  it("refuses an empty value and anything past the token length bound", () => {
+    expect(isValidNotificationFilterValue("")).toBe(false);
+    expect(isValidNotificationFilterValue("x".repeat(NOTIFICATION_FILTER_MAX_LENGTH))).toBe(true);
+    expect(isValidNotificationFilterValue("x".repeat(NOTIFICATION_FILTER_MAX_LENGTH + 1))).toBe(false);
   });
 });

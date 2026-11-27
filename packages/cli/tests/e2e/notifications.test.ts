@@ -45,11 +45,22 @@ afterEach(async () => {
 
 /** Poll the board's notification route, exactly as a client would. */
 async function fetchNotifications(
-  query: { since?: string; limit?: number } = {},
+  query: {
+    since?: string;
+    limit?: number;
+    taskId?: string;
+    type?: string;
+    status?: string;
+    agent?: string;
+  } = {},
 ): Promise<NotificationReadResult> {
   const params = new URLSearchParams();
   if (query.since !== undefined) params.set("since", query.since);
   if (query.limit !== undefined) params.set("limit", String(query.limit));
+  for (const dimension of ["taskId", "type", "status", "agent"] as const) {
+    const value = query[dimension];
+    if (value !== undefined) params.set(dimension, value);
+  }
   const suffix = params.toString() ? `?${params.toString()}` : "";
   const response = await fetch(
     `${instance!.url}/api/notifications${suffix}`,
@@ -88,6 +99,7 @@ describe("GET /api/notifications (e2e)", () => {
       gap: false,
       truncated: false,
       count: 0,
+      filteredCount: 0,
     });
 
     // ── task.create ──────────────────────────────────────────────────────
@@ -198,5 +210,106 @@ describe("GET /api/notifications (e2e)", () => {
     expect(body.example).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     expect(body.message).toContain(body.example);
     expect(body.message).toContain("nextTs");
+  });
+
+  /**
+   * Subscription dimensions over the REAL wire (ticket p3tkodry): the filter
+   * runs in the board, the answer still says how many events it dropped, and
+   * `nextTs` refuses to step over them.
+   */
+  it("narrows the page with ?taskId/?type, counts what it dropped and pins nextTs", async () => {
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir,
+      _testToken: null,
+      _testWorkspace: null,
+    });
+
+    await runCli([
+      "tasks",
+      "--add",
+      "--title",
+      "filtered follower task",
+      "--json",
+    ]);
+    const all = await fetchNotifications();
+    const created = all.notifications[0]!;
+    // One command, two confirmed effects: task.update + task.comment.
+    await runCli([
+      "tasks",
+      "--edit",
+      created.taskId,
+      "--set-status",
+      "in-progress",
+      "--comment",
+      "filter me",
+      "--json",
+    ]);
+
+    // Re-read the whole window after the edit: three events, one task.
+    const window = await fetchNotifications();
+    expect(window.notifications.map((e) => e.type)).toEqual([
+      "task.create",
+      "task.update",
+      "task.comment",
+    ]);
+    expect(window.count).toBe(3);
+    expect(window.filteredCount).toBe(0);
+
+    // Only the comment: two events are dropped and COUNTED, and the cursor
+    // stays at the oldest dropped one (the create) — a follower that moved
+    // past it could never see those events again after a filter change.
+    const comments = await fetchNotifications({ type: "task.comment" });
+    expect(comments.notifications.map((e) => e.type)).toEqual(["task.comment"]);
+    expect(comments.count).toBe(1);
+    expect(comments.filteredCount).toBe(2);
+    expect(comments.nextTs).toBe(window.notifications[0]!.ts);
+
+    // A task-scoped read matches every event of that task.
+    const scoped = await fetchNotifications({ taskId: created.taskId });
+    expect(scoped.count).toBe(3);
+    expect(scoped.filteredCount).toBe(0);
+    expect(scoped.nextTs).toBe(window.nextTs);
+
+    // A well-formed value this board never emitted narrows to zero — explicit,
+    // never widened behind the caller's back.
+    const nothing = await fetchNotifications({ agent: "nobody-at-all" });
+    expect(nothing.count).toBe(0);
+    expect(nothing.filteredCount).toBe(3);
+
+    // An UNKNOWN dimension is not a constraint: it widens, never 400s.
+    const unknownDimension = await fetch(
+      `${instance.url}/api/notifications?tag=urgent&type=task.comment`,
+    );
+    expect(unknownDimension.status).toBe(200);
+    const widened = (await unknownDimension.json()) as NotificationReadResult;
+    expect(widened.count).toBe(1);
+    expect(widened.filteredCount).toBe(2);
+  });
+
+  it("rejects a filter value no stored event could ever hold", async () => {
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir,
+      _testToken: null,
+      _testWorkspace: null,
+    });
+
+    const response = await fetch(
+      `${instance.url}/api/notifications?taskId=${encodeURIComponent("a\u0000b")}`,
+    );
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as {
+      error: string;
+      message: string;
+      expectedFormat: string;
+      example: string;
+    };
+    // The SAME envelope shape as INVALID_SINCE on this surface (the hosted
+    // route answers `{ error, code }` — the drift is ticket 0045949e's).
+    expect(body.error).toBe("INVALID_FILTER");
+    expect(body.message).toContain("taskId");
+    expect(body.expectedFormat).toContain("taskId=");
+    expect(body.example).toContain("taskId=");
   });
 });

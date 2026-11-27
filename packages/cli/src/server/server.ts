@@ -1,6 +1,10 @@
 import { taskReadNotices, type TaskReadFinding } from "../core/task-record-read.js";
 import {
+  isValidNotificationFilterValue,
+  NOTIFICATION_FILTER_DIMENSIONS,
+  NOTIFICATION_FILTER_MAX_LENGTH,
   readNotifications,
+  type NotificationFilter,
 } from "../core/notifications.js";
 import { notifyBoardEffect } from "./notify-board.js";
 import {
@@ -426,6 +430,16 @@ function registerTaskApi(
   // events were evicted before `since`, and `truncated` says more matched than
   // `limit` (the NEWEST win). Same no-auth local rule as every other /api route
   // here; CORS is the app-wide middleware.
+  //
+  // Subscription dimensions (ticket p3tkodry): `?taskId=&type=&status=&agent=`
+  // narrow the page SERVER-SIDE so a follower is not handed events it will
+  // discard, and `filteredCount` tells it how many were dropped. Two rules,
+  // spelled the same on the hosted route (`api/v0/notifications`):
+  // - an UNKNOWN dimension is not a constraint and never an error — a newer
+  //   client against an older board sees MORE than it asked for, never less;
+  // - an INVALID VALUE for a known dimension is 400 INVALID_FILTER, in the
+  //   same envelope shape as INVALID_SINCE below (the hosted route answers
+  //   `{ error, code }` instead — the envelope drift is ticket 0045949e's).
   app.get("/api/notifications", (req, res) => {
     const sinceParam = req.query.since;
     if (sinceParam !== undefined) {
@@ -445,10 +459,30 @@ function registerTaskApi(
       typeof limitParam === "string" && limitParam.trim() !== ""
         ? Number.parseInt(limitParam, 10)
         : undefined;
+    const filter: NotificationFilter = {};
+    for (const dimension of NOTIFICATION_FILTER_DIMENSIONS) {
+      const raw = req.query[dimension];
+      if (raw === undefined) continue;
+      // A repeated param is `string[]`: ambiguous, so it is not a constraint.
+      if (typeof raw !== "string") continue;
+      // Empty / blank ⇒ "no constraint" (widens), like an omitted one.
+      if (raw.trim() === "") continue;
+      if (!isValidNotificationFilterValue(raw)) {
+        res.status(400).json({
+          error: "INVALID_FILTER",
+          message: `\`${dimension}\` must be one token of at most ${NOTIFICATION_FILTER_MAX_LENGTH} characters with no control characters. Omit it to widen the feed.`,
+          expectedFormat: `${dimension}=<one token, no control characters>`,
+          example: `${dimension}=${dimension === "status" ? "in-progress" : dimension === "type" ? "task.comment" : "abc123"}`,
+        });
+        return;
+      }
+      filter[dimension] = raw;
+    }
     res.json(
       readNotifications(projectDir, {
         ...(typeof sinceParam === "string" ? { since: sinceParam } : {}),
         ...(limit !== undefined && !Number.isNaN(limit) ? { limit } : {}),
+        ...(Object.keys(filter).length > 0 ? { filter } : {}),
       }),
     );
   });

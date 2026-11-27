@@ -317,10 +317,138 @@ export function appendConfirmedNotification<A extends HookActivity>(
   return event;
 }
 
+/**
+ * The subscription dimensions a read may narrow on (ticket p3tkodry). ONE list
+ * for both backends: the local board and the hosted ring expose the same four
+ * params with the same semantics (the parity goal of ticket 0045949e).
+ *
+ * The names are the WIRE names — the query parameter IS the dimension, so a
+ * client that asks for `?status=` means the same thing everywhere.
+ */
+export const NOTIFICATION_FILTER_DIMENSIONS = [
+  "taskId",
+  "type",
+  "status",
+  "agent",
+] as const;
+
+export type NotificationFilterDimension =
+  (typeof NOTIFICATION_FILTER_DIMENSIONS)[number];
+
+/**
+ * Server-side subscription of ONE read (ticket p3tkodry). Every present
+ * dimension must match (AND); an absent or empty one imposes nothing.
+ *
+ * A dimension value is an opaque token, validated only by
+ * {@link isValidNotificationFilterValue} — the four vocabularies differ in
+ * shape (`abc123`, `task.comment`, `in-progress`, `pi-4242`) and a stricter
+ * grammar would refuse legitimate data. A value that is WELL FORMED but names
+ * something this backend never emits (`?type=verify` on the hosted ring)
+ * narrows to zero events, explicitly: that is the documented vocabulary edge,
+ * not a reason to widen behind the caller's back.
+ */
+export type NotificationFilter = Partial<
+  Record<NotificationFilterDimension, string>
+>;
+
+/** Longest accepted dimension value — ids and labels, never documents. */
+export const NOTIFICATION_FILTER_MAX_LENGTH = 128;
+
+/**
+ * Validity of ONE dimension value: non-empty, at most
+ * {@link NOTIFICATION_FILTER_MAX_LENGTH} characters, no control characters.
+ *
+ * Whitespace INSIDE a value is allowed on purpose: `agent` is a caller-chosen
+ * identity label (`$VIBEFLOW_ACTOR`), not an id grammar. A whitespace-only
+ * value means "no constraint" (the routes treat it as absent, the way they
+ * already treat an empty `since`), so a fat-fingered blank widens instead of
+ * hiding the feed. What cannot be a stored value at all — a NUL byte or a
+ * newline smuggled in through the query string — is refused.
+ */
+export function isValidNotificationFilterValue(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= NOTIFICATION_FILTER_MAX_LENGTH &&
+    !/[\u0000-\u001f\u007f]/.test(value)
+  );
+}
+
+/**
+ * The status an event ANNOUNCES: `to.status` (create / hosted patch) or the
+ * destination of a claim, which the local vocabulary names `to.to`
+ * (`{from, to}`).
+ *
+ * Deliberate asymmetry, documented rather than papered over: a LOCAL
+ * `task.update` payload carries only the changed KEY NAMES (no new values), so
+ * locally only `task.create`/`task.claim` are status-narrowable, while the
+ * hosted ring's `task.patch` copy does carry the patched values. Same
+ * predicate, same spelling, different data — a `?status=` reader on a local
+ * board sees creations and claims, not every edit that wrote a status
+ * (ticket p3tkodry).
+ */
+export function notificationStatusOf(
+  event: NotificationEvent,
+): string | undefined {
+  const to = event.to;
+  if (to === undefined) return undefined;
+  if (typeof to.status === "string") return to.status;
+  return typeof to.to === "string" ? to.to : undefined;
+}
+
+/**
+ * dimension → "does this event satisfy it". Keyed by the union, so a new
+ * dimension breaks this table instead of silently never matching.
+ */
+const FILTER_PREDICATES: {
+  [D in NotificationFilterDimension]: (
+    event: NotificationEvent,
+    value: string,
+  ) => boolean;
+} = {
+  taskId: (event, value) => event.taskId === value,
+  type: (event, value) => event.type === value,
+  status: (event, value) => notificationStatusOf(event) === value,
+  agent: (event, value) => event.agent === value,
+};
+
+/**
+ * Does this event pass the subscription? Absent filter, and an absent or empty
+ * dimension, ⇒ true. An UNKNOWN dimension ⇒ true as well: widening is the only
+ * safe answer to a dimension this backend does not implement (a newer client
+ * against an older board must see MORE than it asked for, never less).
+ */
+export function matchesNotificationFilter(
+  event: NotificationEvent,
+  filter: NotificationFilter | undefined,
+): boolean {
+  if (filter === undefined) return true;
+  for (const [dimension, value] of Object.entries(filter)) {
+    if (value === undefined || value.trim() === "") continue;
+    const predicate =
+      FILTER_PREDICATES[dimension as NotificationFilterDimension];
+    if (predicate === undefined) continue;
+    if (!predicate(event, value)) return false;
+  }
+  return true;
+}
+
 export interface NotificationReadResult {
   /** Oldest → newest (file order is append order; never re-sorted). */
   notifications: NotificationEvent[];
-  /** Last returned event's ts, else `since`, else null. */
+  /**
+   * The READ CURSOR: the newest point up to which every stored event in the
+   * `since` window has been accounted for — matched or filtered.
+   *
+   * It is NOT "the last event in the page". While the subscription drops
+   * events, `nextTs` is pinned at the OLDEST dropped one, so the cursor can
+   * never advance past an event the filter hid: change the filter later and
+   * that event is still ahead of the cursor (ticket p3tkodry). The follower
+   * re-reads from there — `since` is inclusive and it dedupes by id — and the
+   * honest cost is that a cursor pinned long enough has its events evicted by
+   * the 500-event cap, which the ordinary `gap` warning then reports.
+   *
+   * `null` only when there is nothing stored, no cursor and nothing dropped.
+   */
   nextTs: string | null;
   /** Oldest event currently stored; null when the log is empty. */
   earliestTs: string | null;
@@ -334,6 +462,13 @@ export interface NotificationReadResult {
   truncated: boolean;
   /** `notifications.length`. */
   count: number;
+  /**
+   * Events inside the `since` window the SUBSCRIPTION dropped
+   * (`window - matched`), so a filtered follower always learns that something
+   * was filtered — counts, never silence. Events dropped by `limit` belong to
+   * `truncated`: those did match.
+   */
+  filteredCount: number;
 }
 
 /** Base32 (RFC 4648 lowercase, digits 2-7) — 5 bits per char. */
@@ -511,26 +646,50 @@ function resolveLimit(limit: number | undefined): number {
  *
  * - `since` is INCLUSIVE (`ts >= since`): at-least-once delivery, so the
  *   boundary event may repeat but can never be missed.
+ * - `filter` (ticket p3tkodry) narrows the page SERVER-SIDE: only events that
+ *   pass {@link matchesNotificationFilter} are returned, `filteredCount` says
+ *   how many the subscription dropped, and `nextTs` stays behind the rest (see
+ *   its own doc).
  * - `limit` keeps the NEWEST `limit` matches; `truncated` says more matched.
  * - `gap` warns that `since` predates what is still stored, i.e. events the
  *   caller never saw were evicted and it must re-read instead of paging.
  */
 export function readNotifications(
   projectDir: string,
-  opts: { since?: string; limit?: number } = {},
+  opts: { since?: string; limit?: number; filter?: NotificationFilter } = {},
 ): NotificationReadResult {
   const stored = readStoredEvents(projectDir);
   const earliestTs = stored.length > 0 ? stored[0]!.ts : null;
   const since = opts.since === undefined ? undefined : normalizeSince(opts.since);
-  const matched =
+  const window =
     since === undefined ? stored : stored.filter((event) => event.ts >= since);
+  // Subscription BEFORE paging: events the caller asked not to be handed never
+  // occupy a page slot and can never crowd out a match.
+  const matched: NotificationEvent[] = [];
+  const dropped: NotificationEvent[] = [];
+  for (const event of window) {
+    (matchesNotificationFilter(event, opts.filter) ? matched : dropped).push(
+      event,
+    );
+  }
   const limit = resolveLimit(opts.limit);
   const truncated = matched.length > limit;
   const notifications = truncated ? matched.slice(matched.length - limit) : matched;
-  const nextTs =
+  // The cursor stops at the oldest DROPPED event: advancing past it would put
+  // an event behind the caller that it never got the chance to change its mind
+  // about (ticket p3tkodry). An unfiltered read is unchanged — nothing dropped,
+  // so the last returned event is the cursor, exactly as before.
+  const lastReturnedTs =
     notifications.length > 0
       ? notifications[notifications.length - 1]!.ts
-      : (since ?? null);
+      : undefined;
+  const pinnedTs = dropped[0]?.ts;
+  let nextTs: string | null;
+  if (lastReturnedTs !== undefined && pinnedTs !== undefined) {
+    nextTs = lastReturnedTs < pinnedTs ? lastReturnedTs : pinnedTs;
+  } else {
+    nextTs = lastReturnedTs ?? pinnedTs ?? since ?? null;
+  }
   // `gap` = "events you never saw are gone". Two ways that happens:
   //   1. the log still holds events but `since` predates the oldest (eviction);
   //   2. the log holds NOTHING while the epoch marker proves it once did —
@@ -553,5 +712,6 @@ export function readNotifications(
     gap,
     truncated,
     count: notifications.length,
+    filteredCount: dropped.length,
   };
 }
