@@ -222,7 +222,7 @@ export const Working: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await canvas.findByText("claimed");
+    await canvas.findByText("updated status · → in-progress");
     // The claim is rendered as a claim: WHO, and how old the evidence is.
     expect(
       canvas.getByText(/^pi-1187 working on this task · \d+ s ago$/),
