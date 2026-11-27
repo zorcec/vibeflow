@@ -378,6 +378,8 @@ export const STORY_MATRIX: readonly StoryMatrixEntry[] = [
       { name: "Empty", covers: "'no activity yet' only after a successful read, never during loading" },
       { name: "Stale", covers: "a failed read shows the stale note + read age and never a false empty" },
       { name: "Evicted", covers: "the feed's gap is repeated to the reader instead of implying a complete history" },
+      { name: "Working", covers: "a live 'working on' claim names its agent and its age — the claim is rendered as a claim, with its evidence" },
+      { name: "Idle", covers: "a claim past its TTL reads 'idle, watching', never a frozen 'working on' line, even from a board that did not filter it" },
     ],
   },
   {
