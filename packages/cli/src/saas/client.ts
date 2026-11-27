@@ -610,9 +610,6 @@ export async function fetchSaasTasks(
       // P2 (ticket d7b9dc13): a successful page that carries NEITHER `items`
       // NOR `tasks` is malformed, not empty — accepting `{}` as an empty
       // page would resolve reads against a board that was never sent.
-      // P2 (ticket d7b9dc13): a successful page that carries NEITHER `items`
-      // NOR `tasks` is malformed, not empty — accepting `{}` as an empty
-      // page would resolve reads against a board that was never sent.
       if (!Array.isArray(data.items) && !Array.isArray(data.tasks)) {
         return {
           ok: false,

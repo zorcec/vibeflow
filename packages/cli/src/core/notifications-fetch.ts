@@ -14,16 +14,15 @@
  *
  * Target resolution is one rule, no discovery: an explicit `target` wins;
  * otherwise the project's own auth decides — online when the project is linked
- * to a board AND a token exists, local otherwise. `resolveBoardScope` is the
- * same helper the write paths use, so the board the feed is read from is the
- * board a write would land on; when it resolves nothing (an unusual pointer
- * read failure) the credential's own workspace id scopes the request, exactly
- * as `saas/client.ts` builds it.
+ * to a board AND a token exists, local otherwise. The board the feed is read
+ * from is the project's own pointer id (`resolveProjectAuth` sets
+ * `workspaceId` to that pointer on the saas path, ADR-0005) — the same board a
+ * write would land on.
  *
  * `since` is validated here, before either backend runs: an unparseable value
  * is `INVALID_SINCE`, never forwarded upstream as garbage.
  */
-import { resolveBoardScope, scopeHeaderFor } from "../auth/board-scope.js";
+import { scopeHeaderFor } from "../auth/board-scope.js";
 import { resolveProjectAuth } from "../auth/project-auth.js";
 import { fetchWithTimeout } from "../saas/request.js";
 import { getApiUrl } from "./api-url.js";
@@ -108,8 +107,8 @@ export interface OnlineAccess {
 /**
  * The project's own online access — the ONE probe behind both auto-resolution
  * and the online request. Never throws: a project with no pointer or no
- * credential simply has no access (and a failed board-scope lookup only means
- * the request falls back to the credential's own workspace id).
+ * credential simply has no access. The board id is the project's own pointer id
+ * (`resolveProjectAuth` sets `workspaceId` to it on the saas path).
  */
 export async function resolveOnlineAccess(
   projectDir: string,
@@ -117,11 +116,12 @@ export async function resolveOnlineAccess(
   try {
     const auth = await resolveProjectAuth(projectDir);
     if (auth.mode !== "saas" || !auth.token) return null;
-    // The same board the write paths resolve. A failed listing or a 2+-board
-    // refusal leaves the request unscoped and the server authoritative (its
-    // own 403/422 becomes NOTIFICATIONS_FETCH_FAILED below — never a guess).
-    const boardId = await resolveBoardScope(null, projectDir).catch(() => null);
-    return { token: auth.token, boardId: boardId ?? auth.workspaceId };
+    // ADR-0005: `mode: "saas"` implies a project pointer, and
+    // `resolveProjectAuth` sets `workspaceId` to that pointer's id. A
+    // `resolveBoardScope` re-read would return the same id (it short-circuits
+    // on the pointer), so no board listing or 2+-board refusal can ever fire
+    // here — there is nothing to fall back from. The board id is the pointer.
+    return { token: auth.token, boardId: auth.workspaceId };
   } catch {
     return null;
   }
