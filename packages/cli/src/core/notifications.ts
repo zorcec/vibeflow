@@ -41,6 +41,49 @@ export const NOTIFICATIONS_DEFAULT_LIMIT = 50;
 /** Hard ceiling on {@link readNotifications}'s page size. */
 export const NOTIFICATIONS_MAX_LIMIT = 200;
 
+/**
+ * How long a follower asks the board to HOLD a read open, in milliseconds —
+ * the long-poll bound (ticket olkwa34zghp22owchuhzaaba).
+ *
+ * Chosen to sit under every hop's idle timeout on the way to a board (a proxy
+ * that gives up on a silent upstream answers a 504 the follower would have to
+ * treat as a failure) and to amortise the empty case: one request per 20 s per
+ * follower instead of one per 2 s, with no added latency when something is
+ * appended. It is a HINT — the board clamps it and reports what it applied —
+ * and a board that predates it ignores the parameter entirely.
+ */
+export const NOTIFICATIONS_WAIT_MS = 20_000;
+
+/**
+ * Hard ceiling on a held read; a larger ask is clamped, never refused — the
+ * bound protects the server, it is not a contract the caller can break.
+ */
+export const NOTIFICATIONS_WAIT_MAX_MS = 55_000;
+
+/**
+ * How a (possibly held) read ended — the EXPLICIT capability signal a follower
+ * reads instead of guessing from elapsed time.
+ *
+ * - `ready`   — answered at once: no `since`, events already in the window, or
+ *               a `gap` the caller must hear about now.
+ * - `event`   — the request was HELD and released by an append.
+ * - `timeout` — the request was HELD and the bound expired with nothing new:
+ *               the page is EMPTY, `nextTs` is unchanged and `gap` is false —
+ *               a wait that expired is not lost data.
+ *
+ * A board that predates the feature omits the field entirely, and that absence
+ * is how a follower knows to fall back to the 2 s poll.
+ */
+export type NotificationWaitRelease = "ready" | "event" | "timeout";
+
+/** The `wait` object a feed answer carries iff the board honoured `?wait=` (see {@link NotificationWaitRelease}). */
+export interface NotificationWaitSignal {
+  /** The bound the board actually applied — a clamped hint, not the ask. */
+  boundMs: number;
+  /** How the request ended. */
+  released: NotificationWaitRelease;
+}
+
 export interface NotificationEvent {
   /** `evt_` + 26 lowercase base32 chars (see {@link newNotificationId}). */
   id: string;

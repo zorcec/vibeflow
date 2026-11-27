@@ -19,6 +19,7 @@ import type { ServeInstance } from "../../src/server/server.js";
 import type {
   NotificationEvent,
   NotificationReadResult,
+  NotificationWaitSignal,
 } from "../../src/core/notifications.js";
 
 /** The unit setup pins `VIBEFLOW_EVENTS=0`; a spawned child opts back in. */
@@ -52,11 +53,13 @@ async function fetchNotifications(
     type?: string;
     status?: string;
     agent?: string;
+    wait?: number;
   } = {},
-): Promise<NotificationReadResult> {
+): Promise<NotificationReadResult & { wait?: NotificationWaitSignal }> {
   const params = new URLSearchParams();
   if (query.since !== undefined) params.set("since", query.since);
   if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.wait !== undefined) params.set("wait", String(query.wait));
   for (const dimension of ["taskId", "type", "status", "agent"] as const) {
     const value = query[dimension];
     if (value !== undefined) params.set(dimension, value);
@@ -66,7 +69,9 @@ async function fetchNotifications(
     `${instance!.url}/api/notifications${suffix}`,
   );
   expect(response.ok).toBe(true);
-  return (await response.json()) as NotificationReadResult;
+  return (await response.json()) as NotificationReadResult & {
+    wait?: NotificationWaitSignal;
+  };
 }
 
 /** Run the CLI in the temp project with the event log switched ON. */
@@ -285,6 +290,81 @@ describe("GET /api/notifications (e2e)", () => {
     const widened = (await unknownDimension.json()) as NotificationReadResult;
     expect(widened.count).toBe(1);
     expect(widened.filteredCount).toBe(2);
+  });
+
+
+  it("holds a read open and wakes it on the next append", async () => {
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir,
+      _testToken: null,
+      _testWorkspace: null,
+    });
+
+    await runCli(["tasks", "--add", "--title", "held read task", "--json"]);
+    const seed = await fetchNotifications();
+
+    // The write arrives from ANOTHER process while the read is held — the case
+    // an in-process board broadcast would miss, and the reason the signal is a
+    // file watch.
+    const held = fetchNotifications({ since: seed.nextTs!, wait: 5_000 });
+    // Let the request reach the board and arm its hold before the append.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await runCli([
+      "tasks",
+      "--edit",
+      seed.notifications[0]!.taskId,
+      "--set-status",
+      "in-progress",
+      "--json",
+    ]);
+    const answer = await held;
+
+    // An explicit `event` release: the follower learns it was WOKEN, not that
+    // it happened to ask at the right moment.
+    expect(answer.wait).toEqual({ boundMs: 5_000, released: "event" });
+    expect(answer.notifications.map((event) => event.type)).toContain(
+      "task.update",
+    );
+  });
+
+  it("a wait that expires answers an empty page, not a gap", async () => {
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir,
+      _testToken: null,
+      _testWorkspace: null,
+    });
+
+    await runCli(["tasks", "--add", "--title", "quiet task", "--json"]);
+    const seed = await fetchNotifications();
+    const timedOut = await fetchNotifications({
+      since: seed.nextTs!,
+      wait: 150,
+    });
+
+    // The boundary event sits ON the cursor, so a plain read would return it.
+    // A held read that expires returns NOTHING and says nothing was lost.
+    expect(timedOut.notifications).toEqual([]);
+    expect(timedOut.count).toBe(0);
+    expect(timedOut.truncated).toBe(false);
+    expect(timedOut.nextTs).toBe(seed.nextTs);
+    expect(timedOut.gap).toBe(false);
+    expect(timedOut.wait).toEqual({ boundMs: 150, released: "timeout" });
+  });
+
+  it("rejects a `wait` that is not a whole number of milliseconds", async () => {
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir,
+      _testToken: null,
+      _testWorkspace: null,
+    });
+    const response = await fetch(`${instance.url}/api/notifications?wait=soon`);
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: string; example: string };
+    expect(body.error).toBe("INVALID_WAIT");
+    expect(body.example).toContain("wait=");
   });
 
   it("rejects a filter value no stored event could ever hold", async () => {

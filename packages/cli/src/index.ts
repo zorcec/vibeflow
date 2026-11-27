@@ -25,6 +25,7 @@ import {
 } from "./core/tasks.js";
 import { addComment } from "./core/comments.js";
 import {
+  NOTIFICATIONS_WAIT_MS,
   appendConfirmedNotification,
   isOwnNotification,
   notificationIdentity,
@@ -7982,9 +7983,12 @@ program
   );
 
 /**
- * The `--follow` loop (ticket ae96cee7): re-read the feed every
- * {@link NOTIFICATIONS_POLL_INTERVAL_MS} from the last `nextTs` and emit what is
- * new until Ctrl-C.
+ * The `--follow` loop (ticket ae96cee7): re-read the feed from the last
+ * `nextTs` and emit what is new until Ctrl-C. The read is HELD by the board
+ * for up to {@link NOTIFICATIONS_WAIT_MS} so an append wakes the follower;
+ * when the board does not hold it (an older board, or a page it had ready) the
+ * loop sleeps {@link NOTIFICATIONS_POLL_INTERVAL_MS} and polls — the transport
+ * decides, never the clock.
  *
  * `since` is INCLUSIVE, so every poll legitimately repeats the boundary event;
  * emitted ids are remembered and skipped, which is the whole at-least-once
@@ -8220,6 +8224,9 @@ async function followNotifications(
   let target: NotificationTarget | undefined = opts.target;
   // Consecutive retryable failures; drives the backoff step.
   let failures = 0;
+  // Set after the first successful read: only that answer carries the
+  // watching registration, so it must never be held (see `waitMs` below).
+  let firstReadDone = false;
   // One line when the feed goes down, one when it comes back — never one per
   // attempt, or the log becomes the reason nobody reads it.
   let failureReported = false;
@@ -8231,6 +8238,16 @@ async function followNotifications(
         ...(target !== undefined ? { target } : {}),
         ...(cursor !== undefined ? { since: cursor } : {}),
         ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+        // Ask for a HELD read (ticket olkwa34zghp22owchuhzaaba): the board
+        // wakes us on the next append instead of being asked every 2 s. An
+        // older board ignores the parameter and sends no `wait` back, which is
+        // exactly how the fallback below knows to poll.
+        //
+        // NOT on the first read: the watching registration (and so the
+        // follower's presence in the badge) rides on this answer, and a
+        // fresh follower must appear AT ONCE rather than after the first
+        // bound expires.
+        ...(firstReadDone ? { waitMs: NOTIFICATIONS_WAIT_MS } : {}),
       });
     } catch (err) {
       // An unexpected throw must never end a process whose whole job is to keep
@@ -8293,6 +8310,7 @@ async function followNotifications(
       cursor = undefined;
       emitted.clear();
     }
+    firstReadDone = true;
     target = result.target;
     if (registeredTarget !== target) startWatching(target);
     else if (recovered) {
@@ -8328,7 +8346,16 @@ async function followNotifications(
       );
     }
     cursor = result.nextTs ?? cursor;
-    await new Promise((r) => setTimeout(r, NOTIFICATIONS_POLL_INTERVAL_MS));
+    // The wait replaces the sleep only when the board actually HELD the
+    // request (`event`/`timeout`). No `longPoll` = an old board, and `ready` =
+    // it answered at once (fresh cursor, backlog, or a gap) — both keep the
+    // 2 s poll, which is also what makes a persistent `gap` unable to spin
+    // this loop at full speed.
+    const held =
+      result.longPoll !== undefined && result.longPoll.released !== "ready";
+    if (!held) {
+      await new Promise((r) => setTimeout(r, NOTIFICATIONS_POLL_INTERVAL_MS));
+    }
   }
 }
 
@@ -8378,7 +8405,7 @@ program
   )
   .option(
     "--follow",
-    `Poll every ${NOTIFICATIONS_POLL_INTERVAL_MS / 1000} s and print new events until interrupted (Ctrl-C exits 0)`,
+    `Wait for new events and print them as they arrive — the board holds each read for up to ${NOTIFICATIONS_WAIT_MS / 1000} s, falling back to a ${NOTIFICATIONS_POLL_INTERVAL_MS / 1000} s poll on an older board (Ctrl-C exits 0)`,
   )
   .option(
     "--exec <cmd>",

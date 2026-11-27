@@ -26,6 +26,7 @@ import { saasAuth, localAuth } from "./helpers/mock-project-auth.js";
 import {
   fetchNotifications,
   INVALID_SINCE_MESSAGE,
+  NOTIFICATIONS_LOCAL_PATH,
   NOTIFICATIONS_V0_PATH,
   type FetchTransport,
 } from "../../src/core/notifications-fetch.js";
@@ -283,6 +284,97 @@ describe("fetchNotifications — online backend", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.code).toBe("NOT_AUTHENTICATED");
+  });
+});
+
+describe("fetchNotifications — long-poll (`wait`)", () => {
+  /** A board answer that says a held read ended this way. */
+  function heldBody(released: "ready" | "event" | "timeout") {
+    return {
+      notifications: [],
+      nextTs: "2026-11-22T10:00:00.000Z",
+      earliestTs: null,
+      gap: false,
+      truncated: false,
+      count: 0,
+      filteredCount: 0,
+      wait: { boundMs: 20_000, released },
+    };
+  }
+
+  it("sends `wait` on the v0 read and maps the explicit signal", async () => {
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
+    const { fetchImpl, calls } = stubTransport(heldBody("event"));
+    const result = await fetchNotifications(projectDir, {
+      target: "online",
+      since: "2026-11-22T10:00:00.000Z",
+      waitMs: 20_000,
+      fetchImpl,
+    });
+    expect(new URL(calls[0]!.url).searchParams.get("wait")).toBe("20000");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.longPoll).toEqual({ boundMs: 20_000, released: "event" });
+  });
+
+  it("no `wait` in the answer = an old board, NOT a guess from timing", async () => {
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
+    const { fetchImpl } = stubTransport({
+      notifications: [],
+      nextTs: null,
+      earliestTs: null,
+      gap: false,
+      truncated: false,
+      count: 0,
+      filteredCount: 0,
+    });
+    const result = await fetchNotifications(projectDir, {
+      target: "online",
+      waitMs: 20_000,
+      fetchImpl,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Absent, so the follower keeps its 2 s poll.
+    expect(result.longPoll).toBeUndefined();
+  });
+
+  it("holds a LOCAL read on the board when one answers", async () => {
+    vi.mocked(resolveProjectAuth).mockResolvedValue(localAuth(projectDir));
+    const { fetchImpl, calls } = stubTransport(heldBody("timeout"));
+    const result = await fetchNotifications(projectDir, {
+      target: "local",
+      since: "2026-11-22T10:00:00.000Z",
+      waitMs: 20_000,
+      fetchImpl,
+    });
+    const url = new URL(calls[0]!.url);
+    expect(url.pathname).toBe(NOTIFICATIONS_LOCAL_PATH);
+    expect(url.searchParams.get("wait")).toBe("20000");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.target).toBe("local");
+    expect(result.longPoll).toEqual({ boundMs: 20_000, released: "timeout" });
+  });
+
+  it("falls back to the store when no local board is listening", async () => {
+    vi.mocked(resolveProjectAuth).mockResolvedValue(localAuth(projectDir));
+    seedLog([event({ id: "evt_1" })]);
+    const fetchImpl: FetchTransport = async () => {
+      throw new Error("connect ECONNREFUSED 127.0.0.1:3700");
+    };
+    const result = await fetchNotifications(projectDir, {
+      target: "local",
+      since: "2026-11-22T09:00:00.000Z",
+      waitMs: 20_000,
+      fetchImpl,
+    });
+    // The file is the point of the local store: a follower with no board
+    // running keeps reading it, and NO signal means it keeps the 2 s poll.
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.notifications.map((e) => e.id)).toEqual(["evt_1"]);
+    expect(result.longPoll).toBeUndefined();
   });
 });
 

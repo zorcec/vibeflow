@@ -3,9 +3,9 @@ import {
   isValidNotificationFilterValue,
   NOTIFICATION_FILTER_DIMENSIONS,
   NOTIFICATION_FILTER_MAX_LENGTH,
-  readNotifications,
   type NotificationFilter,
 } from "../core/notifications.js";
+import { readNotificationsWithWait } from "../core/notifications-wait.js";
 import { notifyBoardEffect } from "./notify-board.js";
 import {
   listSubscribers,
@@ -440,7 +440,17 @@ function registerTaskApi(
   // - an INVALID VALUE for a known dimension is 400 INVALID_FILTER, in the
   //   same envelope shape as INVALID_SINCE below (the hosted route answers
   //   `{ error, code }` instead — the envelope drift is ticket 0045949e's).
-  app.get("/api/notifications", (req, res) => {
+  //
+  // Long-poll (ticket olkwa34zghp22owchuhzaaba): `?wait=<ms>` holds the request
+  // open until the log is appended to or the bound expires, so a follower is
+  // WOKEN by an event instead of asking every 2 s. The answer always carries a
+  // `wait` object saying how it ended (`ready` / `event` / `timeout`) — an
+  // explicit signal, because the client must never infer capability from
+  // timing. A wait that expires is an EMPTY page with `nextTs` unchanged and
+  // `gap: false`: nothing was lost, and saying otherwise would make every
+  // quiet 20 s look like data loss. An unparseable `wait` is 400 INVALID_WAIT,
+  // in the same envelope as INVALID_SINCE.
+  app.get("/api/notifications", async (req, res) => {
     const sinceParam = req.query.since;
     if (sinceParam !== undefined) {
       if (typeof sinceParam !== "string" || Number.isNaN(Date.parse(sinceParam))) {
@@ -478,13 +488,35 @@ function registerTaskApi(
       }
       filter[dimension] = raw;
     }
-    res.json(
-      readNotifications(projectDir, {
-        ...(typeof sinceParam === "string" ? { since: sinceParam } : {}),
-        ...(limit !== undefined && !Number.isNaN(limit) ? { limit } : {}),
-        ...(Object.keys(filter).length > 0 ? { filter } : {}),
-      }),
-    );
+    const waitParam = req.query.wait;
+    if (waitParam !== undefined) {
+      // Milliseconds, digits only: a negative or fractional bound would make
+      // the hold's meaning ambiguous, and this is a hint, not a contract.
+      if (
+        typeof waitParam !== "string" ||
+        !/^\d+$/.test(waitParam.trim())
+      ) {
+        res.status(400).json({
+          error: "INVALID_WAIT",
+          message:
+            "`wait` must be a whole number of milliseconds — e.g. wait=20000. Omit it to poll instead of waiting.",
+          expectedFormat: "<milliseconds, digits only>",
+          example: "wait=20000",
+        });
+        return;
+      }
+    }
+    // `readNotifications` is total (an unreadable log is an empty log), so the
+    // only failure this await can add is none — keep the handler shape simple.
+    const answer = await readNotificationsWithWait(projectDir, {
+      ...(typeof sinceParam === "string" ? { since: sinceParam } : {}),
+      ...(limit !== undefined && !Number.isNaN(limit) ? { limit } : {}),
+      ...(Object.keys(filter).length > 0 ? { filter } : {}),
+      ...(typeof waitParam === "string"
+        ? { waitMs: Number.parseInt(waitParam.trim(), 10) }
+        : {}),
+    });
+    res.json({ ...answer.read, ...(answer.wait ? { wait: answer.wait } : {}) });
   });
 
   // Watching badge (ticket cgor65lmpv31cib1ef9zce5m): the same three

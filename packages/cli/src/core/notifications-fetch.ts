@@ -26,7 +26,11 @@ import { scopeHeaderFor } from "../auth/board-scope.js";
 import { resolveProjectAuth } from "../auth/project-auth.js";
 import { fetchWithTimeout } from "../saas/request.js";
 import { getApiUrl } from "./api-url.js";
-import { readNotifications } from "./notifications.js";
+import { readConfig } from "./config.js";
+import {
+  readNotifications,
+  type NotificationWaitSignal,
+} from "./notifications.js";
 
 /** Which feed a read targets. */
 export type NotificationTarget = "local" | "online";
@@ -49,6 +53,15 @@ export const INVALID_SINCE_MESSAGE =
   "`since` must be an ISO-8601 UTC timestamp with milliseconds, exactly as returned in `nextTs` — e.g. 2026-11-22T16:58:45.140Z. Omit `since` to read the newest events instead.";
 
 /**
+ * Slack over the board's hold: the answer must arrive BEFORE the client's own
+ * bounded fetch gives up, or a healthy long-poll would read as a failure.
+ */
+const WAIT_TRANSPORT_GRACE_MS = 10_000;
+
+/** The local board's feed route; the hosted board serves the same body on v0. */
+export const NOTIFICATIONS_LOCAL_PATH = "/api/notifications";
+
+/**
  * Transport seam: the production path is `fetchWithTimeout` (bounded, never
  * retried); tests inject their own and assert the request it built.
  */
@@ -64,6 +77,12 @@ export interface FetchOptions {
   since?: string;
   /** Page size; the store keeps the NEWEST `limit` matches. */
   limit?: number;
+  /**
+   * Ask the board to HOLD the read open for up to this long (ticket
+   * olkwa34zghp22owchuhzaaba). Absent = the plain poll: the one behaviour an
+   * OLD board understands, and therefore the fallback that must keep working.
+   */
+  waitMs?: number;
   /** Test seam (see {@link FetchTransport}); production uses the bounded fetch. */
   fetchImpl?: FetchTransport;
 }
@@ -81,6 +100,13 @@ export interface FetchResult {
   /** True iff more events matched than `limit` allowed (the newest win). */
   truncated: boolean;
   count: number;
+  /**
+   * How a long-poll ended, PRESENT IFF the board honoured `?wait=` — the
+   * explicit capability signal (ticket olkwa34zghp22owchuhzaaba). `undefined`
+   * means the board ignored the parameter: an OLD board, so the caller falls
+   * back to the 2 s poll. Never infer this from how long the request took.
+   */
+  longPoll?: NotificationWaitSignal;
 }
 
 export interface FetchRefusal {
@@ -137,6 +163,76 @@ function validateSince(since: string | undefined): FetchRefusal | null {
 }
 
 /** Local read — the JSONL store, straight through {@link readNotifications}. */
+/**
+ * The local board's origin. Same rule as the subscriber calls
+ * (`notifications-subscribers.ts`): the SERVED port, which `serve` publishes
+ * into `<project>/.vibeflow/config.json` — so a custom `-p <port>` is found
+ * with no flag, and a port nobody is serving just fails the connect.
+ */
+function localOrigin(projectDir: string): string {
+  return `http://localhost:${readConfig(projectDir).port}`;
+}
+
+/** The explicit `wait` signal, or `undefined` when the board sent none. */
+function mapWaitSignal(value: unknown): NotificationWaitSignal | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const v = value as Record<string, unknown>;
+  // `released` is the field the contract is read through; a `wait` object
+  // without it is not a signal and must not be mistaken for one.
+  if (
+    v.released !== "ready" &&
+    v.released !== "event" &&
+    v.released !== "timeout"
+  ) {
+    return undefined;
+  }
+  return {
+    boundMs: typeof v.boundMs === "number" ? v.boundMs : 0,
+    released: v.released,
+  };
+}
+
+/**
+ * A local read that can be HELD: ask the board, because only a running process
+ * can be woken by an append (the file cannot call back). `null` means "no
+ * usable answer here" — the board is not running, is an older build, or
+ * answered something that is not a feed — and the caller falls back to the
+ * plain file read, which is the whole point of the local store.
+ */
+async function readLocalBoard(
+  projectDir: string,
+  opts: FetchOptions,
+): Promise<FetchResult | null> {
+  const url = new URL(`${localOrigin(projectDir)}${NOTIFICATIONS_LOCAL_PATH}`);
+  if (opts.since !== undefined) url.searchParams.set("since", opts.since);
+  if (opts.limit !== undefined) {
+    url.searchParams.set("limit", String(opts.limit));
+  }
+  if (opts.waitMs !== undefined) url.searchParams.set("wait", String(opts.waitMs));
+  let res: Response;
+  try {
+    res = await request(
+      opts.fetchImpl,
+      url.toString(),
+      {},
+      (opts.waitMs ?? 0) + WAIT_TRANSPORT_GRACE_MS,
+    );
+  } catch {
+    // No board on that port (or it dropped us): a normal state for a local
+    // project, not a feed failure.
+    return null;
+  }
+  if (!res.ok) return null;
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    return null;
+  }
+  const mapped = mapFeedBody("local", body);
+  return mapped.ok ? mapped : null;
+}
+
 function readLocal(projectDir: string, opts: FetchOptions): FetchResult {
   const read = readNotifications(projectDir, {
     ...(opts.since !== undefined ? { since: opts.since } : {}),
@@ -177,10 +273,14 @@ function request(
   fetchImpl: FetchTransport | undefined,
   url: string,
   init: RequestInit,
+  timeoutMs?: number,
 ): Promise<Response> {
   if (fetchImpl) return fetchImpl(url, init);
-  // pi-lens-ignore: ts-ssrf — url is getApiUrl() + the constant v0 path
-  return fetchWithTimeout(url, init, { phase: "GET (notifications)" });
+  // pi-lens-ignore: ts-ssrf — url is getApiUrl()/localhost + a constant path
+  return fetchWithTimeout(url, init, {
+    phase: "GET (notifications)",
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+  });
 }
 
 /**
@@ -188,7 +288,10 @@ function request(
  * `notifications` array is MALFORMED, not empty: accepting it would resolve a
  * poll against a feed that was never sent, so it refuses instead.
  */
-function mapOnlineBody(body: unknown): FetchResult | FetchRefusal {
+function mapFeedBody(
+  target: NotificationTarget,
+  body: unknown,
+): FetchResult | FetchRefusal {
   if (typeof body !== "object" || body === null) {
     return {
       ok: false,
@@ -207,9 +310,10 @@ function mapOnlineBody(body: unknown): FetchResult | FetchRefusal {
     };
   }
   const notifications = b.notifications as unknown[];
+  const longPoll = mapWaitSignal(b.wait);
   return {
     ok: true,
-    target: "online",
+    target,
     notifications,
     nextTs: typeof b.nextTs === "string" ? b.nextTs : null,
     earliestTs: typeof b.earliestTs === "string" ? b.earliestTs : null,
@@ -219,6 +323,7 @@ function mapOnlineBody(body: unknown): FetchResult | FetchRefusal {
       typeof b.count === "number" && Number.isFinite(b.count)
         ? b.count
         : notifications.length,
+    ...(longPoll !== undefined ? { longPoll } : {}),
   };
 }
 
@@ -232,13 +337,19 @@ async function readOnline(
   if (opts.limit !== undefined) {
     url.searchParams.set("limit", String(opts.limit));
   }
+  if (opts.waitMs !== undefined) url.searchParams.set("wait", String(opts.waitMs));
   const headers: Record<string, string> = {
     Authorization: `Bearer ${access.token}`,
     ...scopeHeaderFor(access.boardId),
   };
   let res: Response;
   try {
-    res = await request(opts.fetchImpl, url.toString(), { headers });
+    res = await request(
+      opts.fetchImpl,
+      url.toString(),
+      { headers },
+      (opts.waitMs ?? 0) + WAIT_TRANSPORT_GRACE_MS,
+    );
   } catch (err) {
     return {
       ok: false,
@@ -273,7 +384,7 @@ async function readOnline(
       }`,
     };
   }
-  return mapOnlineBody(body);
+  return mapFeedBody("online", body);
 }
 
 /**
@@ -291,7 +402,16 @@ export async function fetchNotifications(
   if (invalidSince) return invalidSince;
   const access = await resolveOnlineAccess(projectDir);
   const target = opts.target ?? (access === null ? "local" : "online");
-  if (target === "local") return readLocal(projectDir, opts);
+  if (target === "local") {
+    if (opts.waitMs !== undefined) {
+      const held = await readLocalBoard(projectDir, opts);
+      // A board that answered is the only thing that can hold a request; with
+      // none running (or an older build) the file read below is the fallback,
+      // and the caller sleeps its poll interval because no `wait` came back.
+      if (held !== null) return held;
+    }
+    return readLocal(projectDir, opts);
+  }
   if (access === null) {
     return {
       ok: false,
