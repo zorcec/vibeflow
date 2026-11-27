@@ -38,6 +38,7 @@ import { pushRefusalCode, resolve429WaitMs, PUSH_429_MAX_RESUMES, type Push429Re
 import { maybeCompressForUpload } from "./compression.js";
 import type { PushLoopResult, PushRefusalGroup } from "../auth/login.js";
 import { scopeHeaderFor } from "../auth/board-scope.js";
+import { agentHeader } from "../core/agent-identity.js";
 
 /**
  * Max tasks per `POST /api/v0/tasks/import` (ticket bulk-429).
@@ -1034,7 +1035,13 @@ async function postImportChunk(
         // (CI, throwaway HOME), and an unscoped POST answers 422
         // SCOPE_REQUIRED on a multi-board account — which is every account
         // the moment the demo/second board exists.
-        headers: { Authorization: `Bearer ${token}`, ...scopeHeaders(boardId) },
+        // Ticket uge57p8j: the ONE agent-header builder, so a follower can
+        // suppress the events this chunk's writes caused.
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...scopeHeaders(boardId),
+          ...agentHeader(),
+        },
         body: form,
         signal: AbortSignal.timeout(IMPORT_CHUNK_TIMEOUT_MS),
       });

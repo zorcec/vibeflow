@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   __resetAgentIdentityForTests,
+  agentHeader,
   describeAgentIdentity,
   resolveAgentIdentity,
   type ProcessTree,
@@ -152,6 +153,34 @@ describe("describeAgentIdentity", () => {
     expect(describeAgentIdentity({ source: "none" })).toContain("VIBEFLOW_ACTOR");
     expect(describeAgentIdentity({ id: "pi-9", source: "env" })).toContain("VIBEFLOW_ACTOR");
     expect(describeAgentIdentity({ id: "pi-9", source: "pi-session" })).toContain("pi session");
+  });
+});
+
+describe("agentHeader", () => {
+  // Ticket uge57p8j: ONE builder for `X-Vibeflow-Agent`, shared by every
+  // write surface. The degraded case is the load-bearing one — an unidentified
+  // write must carry NO header, because an empty value would be matched
+  // against a follower's identity and could silence a peer's event.
+  it("names the identity under X-Vibeflow-Agent", () => {
+    expect(agentHeader({ id: "pi-9", source: "pi-session" })).toEqual({
+      "X-Vibeflow-Agent": "pi-9",
+    });
+  });
+
+  it("sends NO header when there is no identity", () => {
+    expect(agentHeader({ source: "none" })).toEqual({});
+  });
+
+  it("treats an empty id as no identity (never an empty header value)", () => {
+    expect(agentHeader({ id: "", source: "env" })).toEqual({});
+  });
+
+  it("defaults to the same resolution the rest of the CLI uses", () => {
+    vi.stubEnv("VIBEFLOW_ACTOR", "pi-a");
+    expect(agentHeader()).toEqual({ "X-Vibeflow-Agent": "pi-a" });
+    vi.stubEnv("VIBEFLOW_ACTOR", "");
+    vi.stubEnv("VIBEFLOW_AGENT_IDENTITY", "off");
+    expect(agentHeader()).toEqual({});
   });
 });
 

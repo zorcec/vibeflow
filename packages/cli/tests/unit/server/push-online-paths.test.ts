@@ -98,6 +98,7 @@ describe("server SaaS-proxy routes hit /api/v0 (never deleted legacy)", () => {
     await instance?.close();
     rmSync(tempDir, { recursive: true, force: true });
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     vi.clearAllMocks();
     delete process.env.VIBEFLOW_API_URL;
     delete process.env.VIBEFLOW_ADMIN_EMAIL;
@@ -149,6 +150,54 @@ describe("server SaaS-proxy routes hit /api/v0 (never deleted legacy)", () => {
     expect(
       cloudCalls.some((c) => c.url.includes("/api/cli/import")),
     ).toBe(false);
+  });
+
+  // Ticket uge57p8j: the board's push route has no header code of its own —
+  // it loops createTasksOneByOne(), which is where the ONE builder stamps the
+  // caller's identity. These two pin the inheritance in both directions, so a
+  // future rewrite that swaps the loop for a raw fetch fails here.
+  it("POST /api/push stamps X-Vibeflow-Agent when the board knows its agent", async () => {
+    vi.stubEnv("VIBEFLOW_ACTOR", "pi-board-test");
+    createTaskFile(tempDir, {
+      id: "task-a",
+      title: "A",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+    });
+
+    const res = await realFetch(`${instance.url}/api/push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keepLocalFiles: true }),
+    });
+    expect(res.status).toBe(200);
+
+    expect(cloudCalls).toHaveLength(1);
+    expect(cloudCalls[0]!.init?.headers).toMatchObject({
+      "X-Vibeflow-Agent": "pi-board-test",
+    });
+  });
+
+  it("POST /api/push sends NO agent header from a session without an identity", async () => {
+    vi.stubEnv("VIBEFLOW_ACTOR", "");
+    createTaskFile(tempDir, {
+      id: "task-a",
+      title: "A",
+      status: "todo",
+      selector: "/",
+      created: "2025-01-01T00:00:00.000Z",
+    });
+
+    const res = await realFetch(`${instance.url}/api/push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keepLocalFiles: true }),
+    });
+    expect(res.status).toBe(200);
+
+    expect(cloudCalls).toHaveLength(1);
+    expect(cloudCalls[0]!.init?.headers).not.toHaveProperty("X-Vibeflow-Agent");
   });
 
   it("GET /kanban fetches the admin profile from /api/v0/me", async () => {

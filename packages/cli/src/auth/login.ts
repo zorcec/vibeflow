@@ -15,6 +15,7 @@ import { ExitCode } from "../core/exit-codes.js";
 import { getApiUrl, surfacePath } from "../core/api-url.js";
 import { fetchWithTimeout } from "../saas/request.js";
 import { scopeHeaderFor } from "./board-scope.js";
+import { agentHeader } from "../core/agent-identity.js";
 import {
   acquirePreflightLease,
   fingerprintSettings,
@@ -859,6 +860,10 @@ export async function createTasksOneByOne(
         // caller passes the board explicitly, so the saved-workspace peek
         // (empty in `--board` flows without a prior login) must not be used.
         ...scopeHeaderFor(boardId),
+        // Ticket uge57p8j: the ONE agent-header builder, so a follower can
+        // suppress the events this push caused (the board's POST /api/push
+        // loops this same function).
+        ...agentHeader(),
       },
       body: JSON.stringify(toV0CreateBody(task, boardId)),
       // Bound fetch (ticket dec52322): a hung create must not stall a
@@ -1013,7 +1018,13 @@ async function resolveRemoteTaskId(
   try {
     const res = await fetch(
       `${apiUrl}${surfacePath("cloud", `/api/cli/tasks/${encodeURIComponent(localId)}`)}`,
-      { headers: { Authorization: `Bearer ${token}`, ...scopeHeaderFor(boardId) } },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...scopeHeaderFor(boardId),
+          ...agentHeader(),
+        },
+      },
     );
     if (!res.ok) return undefined;
     const body = (await res.json().catch(() => null)) as {
@@ -1120,6 +1131,8 @@ export async function applyPushLinks(
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
               ...scopeHeaderFor(boardId),
+              // Ticket uge57p8j: a link write is a write — same one builder.
+              ...agentHeader(),
             },
             body: JSON.stringify({ taskId: remoteTarget, type }),
           },

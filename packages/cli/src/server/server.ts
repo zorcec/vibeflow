@@ -1644,6 +1644,10 @@ function registerMetaApis(
       // No batch import exists in the v0 contract: one POST per task via
       // the shared createTasksOneByOne() loop (same shape as the login
       // flow — cloud-only, so the mode inside is always "cloud").
+      // Ticket uge57p8j: that loop stamps the board's writes with the ONE
+      // agent-header builder (agentHeader()), so this route has no header
+      // of its own — a board run from a plain terminal has no identity and
+      // therefore sends none.
       // SAFETY: listTasksWithPaths returns parsed task JSON objects plus a
       // filePath string — each entry spreads as a plain record into the
       // JSON create body, so the record cast is representation-preserving.

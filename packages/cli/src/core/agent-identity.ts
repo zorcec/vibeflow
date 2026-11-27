@@ -38,6 +38,30 @@ export interface AgentIdentity {
 }
 
 /**
+ * The ONE builder of the `X-Vibeflow-Agent` header (ticket kzxaq0fd).
+ *
+ * Every hosted WRITE surface — ordinary task writes, the one-by-one create
+ * loop, link apply, file upload, import chunks, delta archives, and the local
+ * board's `POST /api/push` (which loops `createTasksOneByOne`) — sends the
+ * agent that caused the write so a follower can suppress its own event and
+ * nobody else's. The surfaces historically each spelled the header inline, so
+ * the bulk-push paths carried none at all and a push echoed back at its own
+ * author (ticket uge57p8j). They now all call this function.
+ *
+ * Absent identity → NO header, never an empty or placeholder value: the event
+ * `agent` is what the follower matches, and silence must never come from an
+ * unknown identity (an unidentified write is always delivered — noise, not
+ * blindness).
+ */
+export function agentHeader(
+  identity: AgentIdentity = resolveAgentIdentity(),
+): Record<string, string> {
+  return identity.id !== undefined && identity.id !== ""
+    ? { "X-Vibeflow-Agent": identity.id }
+    : {};
+}
+
+/**
  * The slice of the process tree the resolver needs. Injected so the logic is
  * unit-testable without a live pi (and so a platform without `/proc` can
  * supply its own reader).

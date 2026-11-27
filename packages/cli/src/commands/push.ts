@@ -26,6 +26,7 @@ import {
 } from "../saas/request.js";
 import { getApiUrl, surfacePath } from "../core/api-url.js";
 import { scopeHeaderFor, scopeHeadersFromSaved } from "../auth/board-scope.js";
+import { agentHeader } from "../core/agent-identity.js";
 
 type ImportResult = {
   imported: number;
@@ -144,6 +145,9 @@ export async function uploadTaskFiles(
             // The resolved board scopes this upload (ticket 605e503c):
             // the peek fallback only serves callers that pass no board.
             ...(boardId !== undefined ? scopeHeaderFor(boardId) : await scopeHeadersFromSaved(projectDir)),
+            // Ticket uge57p8j: a file upload is a write — the ONE builder
+            // names the uploading agent so its own events are suppressed.
+            ...agentHeader(),
             "Content-Type": "application/octet-stream",
             "x-filename": encodeURIComponent(job.name),
             ...(job.system ? { "x-file-system": "1" } : {}),

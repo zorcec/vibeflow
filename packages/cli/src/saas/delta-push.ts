@@ -27,6 +27,7 @@ import { gzipSync } from "node:zlib";
 import type { DeltaPlan } from "./delta-archive";
 import { parentLinkTargets, recordForWire } from "./batch-push";
 import { writeTar, type TarInput } from "./tar-write";
+import { agentHeader } from "../core/agent-identity.js";
 
 /** Base URL path of the archive endpoint (the v0 wire spelling). */
 const ARCHIVE_PATH = "/api/v0/tasks/import/archive";
@@ -187,6 +188,10 @@ export async function sendDeltaArchive(
       headers: {
         Authorization: `Bearer ${args.token}`,
         ...args.headers,
+        // Ticket uge57p8j: an archive POST writes tasks and files — the ONE
+        // agent-header builder names the pusher so its own events are
+        // suppressed (and nobody else's).
+        ...agentHeader(),
         "content-type": "application/gzip",
       },
       body: payload,
