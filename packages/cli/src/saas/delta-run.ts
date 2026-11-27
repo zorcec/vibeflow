@@ -19,6 +19,7 @@ import { applyEmails, resolveEmailsForRecords } from "./commit-emails";
 import {
   buildDeltaPlan,
   chunkDeltaPlan,
+  isSkippedFile,
   type Inventory,
   type LocalTask,
 } from "./delta-archive";
@@ -291,8 +292,14 @@ export async function runDeltaPush(
     DELTA_CHUNK_MAX_TASKS,
     DELTA_CHUNK_MAX_INPUT_BYTES,
   );
+  // Ticket sxz694mdftq: counted with the SENDER's own rule (`isSkippedFile`),
+  // not a second spelling of it — the summary and the archive are then one
+  // fact. The old predicate (`data.length > 0 || size === 0`) happened to match
+  // the intended rule while the writer dropped every empty-`data` file, so a
+  // task with one non-empty and one 0-byte file reported two files sent and
+  // delivered one.
   const filesSent = plan.tasks.reduce(
-    (sum, t) => sum + t.files.filter((f) => f.data.length > 0 || f.size === 0).length,
+    (sum, t) => sum + t.files.filter((f) => !isSkippedFile(f)).length,
     0,
   );
 

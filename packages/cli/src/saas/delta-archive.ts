@@ -70,8 +70,12 @@ export interface DeltaPlan {
  * has no bytes, so the marker would be ambiguous — chunking would then be
  * unable to tell skipped files from genuinely empty ones. Zero-length files
  * are therefore always sent (they cost nothing) and the marker stays exact.
+ *
+ * THIS is the one spelling of that rule: the archive writer skips a file iff
+ * this returns true (ticket sxz694mdftq), so "what the sender drops" and "what
+ * the summary counts" cannot disagree.
  */
-function isSkippedFile(file: { size: number; data: Uint8Array }): boolean {
+export function isSkippedFile(file: { size: number; data: Uint8Array }): boolean {
   return file.size > 0 && file.data.length === 0;
 }
 

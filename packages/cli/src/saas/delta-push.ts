@@ -24,7 +24,7 @@
  * module is transport only: return values in, bytes out.
  */
 import { gzipSync } from "node:zlib";
-import type { DeltaPlan } from "./delta-archive";
+import { isSkippedFile, type DeltaPlan } from "./delta-archive";
 import { parentLinkTargets, recordForWire } from "./batch-push";
 import { writeTar, type TarInput } from "./tar-write";
 import { agentHeader } from "../core/agent-identity.js";
@@ -116,9 +116,12 @@ function declareTaskFiles(task: DeltaPlan["tasks"][number]): {
   const payloads: TarInput[] = [];
   const seenNames = new Set<string>();
   for (const file of task.files) {
-    // Empty data = the planner dropped bytes the server already holds; the
-    // marker must not travel (the server reports it as MISSING_FILE).
-    if (file.data.length === 0) continue;
+    // A file the planner emptied because the server already holds it is a
+    // MARKER and must not travel (the server reports it as MISSING_FILE).
+    // Ticket sxz694mdftq: skip on the canonical marker rule, not on bare
+    // emptiness — a real 0-byte file carries no bytes either, and dropping it
+    // here while `filesSent` counted it made a partial push report success.
+    if (isSkippedFile(file)) continue;
     if (seenNames.has(file.name)) continue;
     seenNames.add(file.name);
     manifest.push({
@@ -138,7 +141,8 @@ function declareTaskFiles(task: DeltaPlan["tasks"][number]): {
  * `files/<id>/<name>` holds raw file bytes. Entries whose `data` is empty are
  * SKIPPED: `buildDeltaPlan` marks files the server already holds by dropping
  * their bytes, and the server refuses a declared-but-byteless file as
- * MISSING_FILE — so the marker must not travel.
+ * MISSING_FILE — so the marker must not travel. A GENUINE 0-byte file is not a
+ * marker (`isSkippedFile` requires `size > 0`) and travels as an empty entry.
  */
 function chunkToTarEntries(chunk: DeltaPlan): TarInput[] {
   const entries: TarInput[] = [];

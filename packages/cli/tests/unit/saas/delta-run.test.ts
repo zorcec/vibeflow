@@ -118,6 +118,41 @@ describe("runDeltaPush", () => {
     expect(archives(calls)).toHaveLength(0);
   });
 
+  it("counts the files it actually archived: one non-empty plus one 0-byte file (ticket sxz694mdftq)", async () => {
+    // The summary (`filesSent`) and the archive are one fact. The writer used
+    // to drop every empty payload — including a real 0-byte file — while the
+    // count included it, so a partial push reported success with N when the
+    // board got N-1.
+    const record = { id: "t1", title: "a" };
+    const { impl, calls } = fakeServer({
+      pages: { null: { deltaImport: 1, tasks: [], files: [], nextCursor: null } },
+    });
+    const result = await runDeltaPush(
+      API,
+      "tok",
+      BOARD,
+      [
+        localInput("t1", record, [
+          { name: "note.md", body: "hello" },
+          { name: "empty.txt", body: "" },
+        ]),
+      ],
+      { headers: HEADERS, fetchImpl: impl, emails: new Map() },
+    );
+
+    // The summary first, then what the receiver actually got — the bug was
+    // these two disagreeing.
+    expect(result!.filesSent).toBe(2);
+    const tar = gunzipSync(Buffer.from(archives(calls)[0]!.body!)).toString("latin1");
+    // Each file entry contributes exactly one `files/<task>/` header path.
+    expect(tar.split("files/t1/").length - 1).toBe(result!.filesSent);
+    expect(tar).toContain("files/t1/empty.txt");
+    expect(tar).toContain("files/t1/note.md");
+    // The receiver's manifest names exactly the same two files.
+    expect(tar).toContain('"name":"empty.txt"');
+    expect(tar).toContain('"name":"note.md"');
+  });
+
   it("forces a task whose RECORD matches but whose file the board cannot prove it has", async () => {
     const record = { id: "t1", title: "a" };
     const { impl, calls } = fakeServer({

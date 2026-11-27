@@ -327,6 +327,49 @@ describe("sendDeltaArchive", () => {
     ]);
   });
 
+  it("sends a genuine 0-byte file as an empty entry (ticket sxz694mdftq)", async () => {
+    // A real 0-byte file is legitimate and `buildDeltaPlan` never marks it
+    // dropped (`isSkippedFile` requires size > 0). The writer used to skip on
+    // bare `data.length === 0` instead, so the file was dropped while
+    // `filesSent` counted it — a push reporting more files than it sent.
+    // Same chunk also carries a REAL marker, so the fix cannot be "send every
+    // empty payload" either.
+    const { fetchImpl, calls } = capturingFetch([okRes]);
+
+    await sendDeltaArchive({
+      apiUrl: API,
+      token: "tok",
+      headers: {},
+      boardId: "board-1",
+      chunks: [
+        chunk([
+          task("t1", { id: "t1" }, [
+            { name: "empty.txt", size: 0, data: new Uint8Array(0) },
+            { name: "marker.md", size: 42, data: new Uint8Array(0) },
+            { name: "kept.md", size: 3, data: bytes("abc") },
+          ]),
+        ]),
+      ],
+      fetchImpl,
+    });
+
+    const entries = readTar(gunzipSync(calls[0]!.body));
+    expect(entries.map((e) => e.path)).toEqual([
+      "tasks/t1.json",
+      "files/t1/empty.txt",
+      "files/t1/kept.md",
+    ]);
+    // The empty entry is really empty and really present.
+    expect(entries[1]!.size).toBe(0);
+    expect(entries[1]!.data.length).toBe(0);
+    // The receiver is told about exactly the entries the archive carries.
+    const manifest = JSON.parse(Buffer.from(entries[0]!.data).toString("utf8"));
+    expect(manifest.files).toEqual([
+      { ref: "t1#0", name: "empty.txt" },
+      { ref: "t1#1", name: "kept.md" },
+    ]);
+  });
+
   it("stops on the first non-2xx: 402 on chunk 2 of 3, chunk 3 never sent", async () => {
     const longBody = "quota exceeded ".repeat(100); // > 500 chars → truncated
     const { fetchImpl, calls } = capturingFetch([
