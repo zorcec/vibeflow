@@ -28,6 +28,7 @@ import {
   mergePullComments,
   mergePullLinks,
   applyPullEntries,
+  beginPullJournal,
   verifyPullStaging,
   stagePullArchive,
   runPullFromBytes,
@@ -810,6 +811,122 @@ describe("pull atomicity — apply verifies before the first write", () => {
       PullVerifyError,
     );
     expectStoreUnchanged(before);
+  });
+});
+
+describe("pull write phase — an I/O failure never leaves half a merge", () => {
+  /** Relative path → content hash for every file under .vibeflow. */
+  function snapshotStore(): Map<string, string> {
+    const root = join(projectDir, ".vibeflow");
+    const out = new Map<string, string>();
+    const walk = (dir: string): void => {
+      if (!existsSync(dir)) return;
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const abs = join(dir, entry.name);
+        if (entry.isDirectory()) walk(abs);
+        else if (entry.isFile()) {
+          out.set(abs.slice(root.length + 1), sha256Hex(readFileSync(abs)));
+        }
+      }
+    };
+    walk(root);
+    return out;
+  }
+
+  function journalDirs(): string[] {
+    const proto = join(projectDir, ".vibeflow");
+    if (!existsSync(proto)) return [];
+    return readdirSync(proto).filter((e) => e.startsWith(".pull-journal-"));
+  }
+
+  function stagingWith(
+    tasks: Array<{ clientId: string; record: Record<string, unknown> }>,
+    files: PullStaging["files"],
+  ): PullStaging {
+    return {
+      manifest: {
+        version: 1,
+        taskCount: tasks.length,
+        fileCount: files.length,
+        tasks: tasks.map((t) => ({ cliId: t.clientId, hash: hashTaskRecord(t.record) })),
+        files: files.map((f) => ({
+          cliId: f.clientId,
+          name: f.name,
+          size: f.data.length,
+          sha256: sha256Hex(f.data),
+        })),
+      },
+      tasks,
+      files,
+      missingBytes: [],
+    };
+  }
+
+  // The injection is a real I/O failure, not a mock: a regular file sits where
+  // the SECOND task's files dir must be created, so plan-time reads pass
+  // (existsSync on a path under a non-directory is false) and mkdirSync throws
+  // in the middle of the write phase — after the task JSONs and the first
+  // task's bytes have already landed.
+  it("an I/O failure partway through the write phase rolls the store back to unchanged", () => {
+    writeTask("e1", taskRecord("e1", { sortKey: "0001" }));
+    const filesDir = join(projectDir, ".vibeflow", "tasks", "files");
+    mkdirSync(filesDir, { recursive: true });
+    writeFileSync(join(filesDir, "n2"), "a regular file where a task dir belongs");
+    const before = snapshotStore();
+
+    const staging = stagingWith(
+      [
+        { clientId: "e1", record: taskRecord("e1", { remoteAdded: "from the board" }) },
+        { clientId: "n1", record: taskRecord("n1", { sortKey: "0010" }) },
+        { clientId: "n2", record: taskRecord("n2", { sortKey: "0011" }) },
+      ],
+      [
+        { clientId: "n1", name: "doc.txt", data: Buffer.from("n1 bytes") },
+        { clientId: "n2", name: "doc.txt", data: Buffer.from("n2 bytes") },
+      ],
+    );
+
+    expect(() => applyPullEntries(projectDir, staging, {})).toThrow(
+      /all 5 planned writes were rolled back/,
+    );
+    // Fully unchanged — not half: the merged e1 is restored byte-for-byte, the
+    // two added tasks and the bytes written for n1 are gone.
+    expect([...snapshotStore().entries()]).toEqual([...before.entries()]);
+    expect(readStoredTask("e1").remoteAdded).toBeUndefined();
+    expect(existsSync(join(projectDir, ".vibeflow", "tasks", "2026-01-01", "n1.json"))).toBe(false);
+    expect(existsSync(join(filesDir, "n1", "doc.txt"))).toBe(false);
+    expect(journalDirs()).toEqual([]);
+  });
+
+  // A killed process cannot roll anything back, so the recorded state has to
+  // do it: the journal left behind is undone by the NEXT pull before it plans.
+  it("a journal left by a killed pull is undone by the next pull", () => {
+    writeTask("e1", taskRecord("e1", { sortKey: "0001", title: "pre-pull" }));
+    const before = snapshotStore();
+    const taskPath = join(projectDir, ".vibeflow", "tasks", "2026-01-01", "e1.json");
+    const addedPath = join(projectDir, ".vibeflow", "tasks", "2026-01-01", "n1.json");
+
+    // What the merge records before its first write...
+    beginPullJournal(projectDir, [taskPath, addedPath]);
+    // ...and the half-applied state a kill leaves behind: one rewrite landed,
+    // one task was added, the rest never ran.
+    writeFileSync(taskPath, JSON.stringify({ ...readStoredTask("e1"), title: "half applied" }));
+    writeFileSync(addedPath, JSON.stringify(taskRecord("n1", { sortKey: "0010" })));
+    expect(journalDirs()).toHaveLength(1);
+
+    const emptyStaging: PullStaging = {
+      manifest: { version: 1, taskCount: 0, fileCount: 0 },
+      tasks: [],
+      files: [],
+      missingBytes: [],
+    };
+    const summary = applyPullEntries(projectDir, emptyStaging, {});
+
+    expect(summary.added + summary.merged).toBe(0);
+    expect(readStoredTask("e1").title).toBe("pre-pull");
+    expect(existsSync(addedPath)).toBe(false);
+    expect([...snapshotStore().entries()]).toEqual([...before.entries()]);
+    expect(journalDirs()).toEqual([]);
   });
 });
 

@@ -30,6 +30,15 @@
  * here: the merge is per-task additive against an existing store, not a
  * whole-directory replacement — verify-before-the-first-write is what makes
  * the rule enforceable.)
+ *
+ * WHY an undo journal for the write phase itself: verification covers a
+ * CORRUPT archive, not a dying machine. The merge writes many paths spread
+ * over the store, so a kill or a full disk between two of them leaves a
+ * half-applied merge. Per-file writes are already atomic (core/tasks.ts
+ * writes `<p>.tmp` then renames) — which is precisely why a staging dir
+ * would not help: the hazard is the SET of writes, never one file, and only
+ * recorded state can span a set. So the write phase runs under a journal
+ * (see "Write-phase recovery" below).
  */
 
 import {
@@ -37,6 +46,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -53,6 +63,7 @@ import {
 } from "@vibeflow-tools/shared/delta-hash";
 import {
   findTaskFilePath,
+  getTaskFilePath,
   readTaskFile,
   writeTaskJson,
   writeTaskJsonAt,
@@ -619,6 +630,190 @@ export function verifyPullStaging(staging: PullStaging): void {
   }
 }
 
+// ── Write-phase recovery: an undo journal ─────────────────────────────────
+//
+// WHY a journal and not stage-then-swap: per-file writes are already atomic
+// (core/tasks.ts writes `<p>.tmp` then renames), and that is exactly why
+// staging would not help — the hazard is the SET of writes, not one file.
+// The merge touches many paths (a task JSON each, then attachment bytes)
+// against an existing store, so no single rename can make the whole set
+// appear; only recorded state can. The store is plain files, so the state
+// that fixes it is an undo log: `<project>/.vibeflow/.pull-journal-<stamp>/`
+// holds the pre-pull bytes of every path the merge will overwrite and the
+// list of paths it will create, complete on disk BEFORE the first store
+// write. Then:
+//   - a write throws  → the journal is replayed and the store is back to its
+//                       pre-pull bytes (the error says so);
+//   - the process is KILLED anywhere in the write phase → the journal is
+//     still there, and the next applyPullEntries replays it before planning.
+// The journal dir is removed only after the last write lands, so its
+// presence IS the truth: no journal = the merge is complete.
+//
+// Undo, not resume: the staged archive that produced the plan is deleted with
+// the temp dir, so replaying a half-applied plan would have to trust bytes
+// that no longer exist. Discarding the merge costs one re-pull and is the
+// only outcome the store can verify. The rollback is applied as recorded, so
+// a store edit made by something else between the kill and the next pull is
+// lost for the journaled paths — the alternative is a half-applied merge.
+
+const PULL_JOURNAL_PREFIX = ".pull-journal-";
+const PULL_JOURNAL_FILE = "journal.json";
+
+/** One path the merge writes, plus how to undo it. `backup` is a copy of the
+ * pre-pull bytes inside the journal dir; absent when `created` is true, where
+ * undo means deleting the file this pull is about to create. */
+export interface PullJournalEntry {
+  path: string;
+  created: boolean;
+  backup?: string;
+}
+
+export interface PullJournal {
+  dir: string;
+  entries: PullJournalEntry[];
+}
+
+/** One planned store write: the exact file the store holds afterwards, and
+ * the call that produces it. Each path appears at most once per merge. */
+interface PullWrite {
+  path: string;
+  write: () => void;
+}
+
+/**
+ * Record the undo state for `paths` and return the journal handle. Returns
+ * only once the journal is complete on disk, so every caller-side write after
+ * this point is recoverable. Pre-pull bytes are copied (not moved): a path is
+ * never missing from the store while the merge runs. Unchanged task records
+ * are the only thing usually backed up — default pulls keep differing bytes
+ * local — so the copy is kilobytes, not the archive.
+ */
+export function beginPullJournal(
+  projectDir: string,
+  paths: string[],
+): PullJournal {
+  const dir = join(
+    projectDir,
+    ".vibeflow",
+    `${PULL_JOURNAL_PREFIX}${Date.now()}-${randomBytes(4).toString("hex")}`,
+  );
+  mkdirSync(dir, { recursive: true });
+  const entries: PullJournalEntry[] = paths.map((path, index) => {
+    if (!existsSync(path)) return { path, created: true };
+    const backup = join(dir, `backup-${index}`);
+    writeFileSync(backup, readFileSync(path));
+    return { path, created: false, backup };
+  });
+  // Atomic: a journal is either complete or absent. A dir without a readable
+  // journal means no store write was ever attempted (see rollback below).
+  const file = join(dir, PULL_JOURNAL_FILE);
+  writeFileSync(
+    file + ".tmp",
+    JSON.stringify({ version: 1, entries }),
+    "utf-8",
+  );
+  renameSync(file + ".tmp", file);
+  return { dir, entries };
+}
+
+/**
+ * Undo a journal: restore every overwritten path from its backup, delete every
+ * path the pull created, then drop the journal dir. Returns false when some
+ * path could not be restored — the journal is kept so the next pull retries. A
+ * journal dir with no readable journal.json never recorded a write and is
+ * simply removed.
+ */
+function rollbackPullJournal(dir: string): boolean {
+  let entries: PullJournalEntry[] = [];
+  try {
+    const parsed: unknown = JSON.parse(
+      readFileSync(join(dir, PULL_JOURNAL_FILE), "utf-8"),
+    );
+    if (isRecord(parsed) && Array.isArray(parsed.entries)) {
+      // SAFETY: entries are re-validated one by one below; only objects with a string path are acted on.
+      entries = parsed.entries.filter(
+        (e): e is PullJournalEntry => isRecord(e) && typeof e.path === "string",
+      );
+    }
+  } catch {
+    entries = [];
+  }
+  let restored = true;
+  for (const entry of [...entries].reverse()) {
+    try {
+      if (entry.backup !== undefined && existsSync(entry.backup)) {
+        renameSync(entry.backup, entry.path);
+      } else if (entry.created === true && existsSync(entry.path)) {
+        // existsSync is false for a path under a non-directory (the shape a
+        // failed dir creation leaves), where rmSync alone would throw ENOTDIR.
+        rmSync(entry.path, { force: true });
+      }
+    } catch {
+      restored = false;
+    }
+    // The store's own temp name (core/tasks.ts writes `<p>.tmp` then renames):
+    // a kill mid-write can leave it behind, and undo must not leave litter.
+    // Best-effort — it is a temp artifact, not store state.
+    try {
+      rmSync(entry.path + ".tmp", { force: true });
+    } catch {
+      /* best-effort */
+    }
+  }
+  if (!restored) return false;
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Undo any journal a killed pull left behind and return the journal dirs that
+ * were rolled back. Called before a merge plans its writes: a half-applied
+ * merge must be discarded before the store is read as the merge basis.
+ */
+export function recoverPullJournal(projectDir: string): string[] {
+  const protoDir = join(projectDir, ".vibeflow");
+  if (!existsSync(protoDir)) return [];
+  const recovered: string[] = [];
+  for (const entry of readdirSync(protoDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (!entry.name.startsWith(PULL_JOURNAL_PREFIX)) continue;
+    const dir = join(protoDir, entry.name);
+    if (rollbackPullJournal(dir)) recovered.push(dir);
+  }
+  return recovered;
+}
+
+/**
+ * Apply the planned writes as ONE recoverable unit: journal first, then the
+ * writes in plan order, then drop the journal. Any throw inside the write
+ * phase rolls the whole merge back before it reaches the caller, so a pull
+ * that reports failure left the store exactly as it found it.
+ */
+function applyPullWrites(projectDir: string, writes: PullWrite[]): void {
+  if (writes.length === 0) return;
+  const journal = beginPullJournal(
+    projectDir,
+    writes.map((w) => w.path),
+  );
+  try {
+    for (const write of writes) write.write();
+  } catch (err) {
+    const rolledBack = rollbackPullJournal(journal.dir);
+    const cause = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      rolledBack
+        ? `Pull failed while writing to the local store; all ${journal.entries.length} planned writes were rolled back, so the store is unchanged: ${cause}`
+        : `Pull failed while writing to the local store AND the rollback failed; the store is half-applied and the next pull will undo it from ${journal.dir}: ${cause}`,
+      { cause: err },
+    );
+  }
+  rmSync(journal.dir, { recursive: true, force: true });
+}
+
 // ── Merge the verified staging into the local store ────────────────────────
 
 /** One task's planned store write. `record` is the exact object to
@@ -664,6 +859,12 @@ interface PullFilePlan {
  * every files[] ref the plan needs) and only then executed, so a task file
  * is never written twice and every write is counted exactly once.
  *
+ * RECOVERABILITY: the planned write phase runs under an undo journal, so an
+ * I/O failure mid-merge — or the process being killed mid-merge — cannot
+ * leave half a pull on disk. A throw rolls every write back before it
+ * reaches the caller; a kill leaves the journal for the next pull, which
+ * undoes the incomplete merge before it plans. See "Write-phase recovery".
+ *
  * FIDELITY: the pull reproduces the server record faithfully. Manifest-only
  * metadata (notably the file-entry `mimeType`) is never invented into the
  * stored task: when the server record carries no `mimeType`, none is
@@ -685,6 +886,12 @@ export function applyPullEntries(
   const preferLocal = opts?.preferLocal === true;
   const dryRun = opts?.dryRun === true;
   const summary = emptyPullSummary();
+
+  // A pull killed mid-write left its journal behind: undo that half-applied
+  // merge BEFORE planning, so this run plans against the store's real
+  // pre-pull state. `dryRun` never writes — not even a rollback — and reports
+  // the store exactly as it is, journal included.
+  if (!dryRun) recoverPullJournal(projectDir);
 
   // ── Phase 1: plan every task write (reads only, no writes) ──
   const taskPlans: PullTaskPlan[] = [];
@@ -859,6 +1066,9 @@ export function applyPullEntries(
   }
 
   // ── Phase 2: execute exactly the plan ──
+  // Writes are COLLECTED here and applied below as one journaled unit: task
+  // JSONs first (the record must exist before its bytes), then blobs.
+  const writes: PullWrite[] = [];
   let ceilingTouched = false;
   for (const plan of taskPlans) {
     if (plan.conflict) summary.conflicts++;
@@ -867,23 +1077,38 @@ export function applyPullEntries(
       continue;
     }
     if (plan.kind === "new") {
-      if (!dryRun && plan.record) {
-        if (plan.filePath === null) {
-          // SAFETY: the planned record derives from the normalised archive record plus pull defaults; writeTaskJson persists it.
-          writeTaskJson(projectDir, plan.record as unknown as Task);
-        } else {
-          // SAFETY: same normalised-archive-record origin as above, restored into its existing slot.
-          writeTaskJsonAt(plan.filePath, plan.record as unknown as Task);
-        }
+      const record = plan.record;
+      if (!dryRun && record) {
+        // SAFETY: the planned record derives from the normalised archive record plus pull defaults; writeTaskJson/writeTaskJsonAt persist it.
+        const task = record as unknown as Task;
+        const existingPath = plan.filePath;
+        writes.push({
+          // A brand-new task lands where writeTaskJson puts it: its own date
+          // subdir under tasks/ (same computation, so the journal names the
+          // file the write actually produces).
+          path:
+            existingPath ??
+            getTaskFilePath(projectDir, plan.clientId, String(record.created)),
+          write: () => {
+            if (existingPath === null) writeTaskJson(projectDir, task);
+            else writeTaskJsonAt(existingPath, task);
+          },
+        });
       }
       summary.added++;
     } else {
-      if (!dryRun && plan.record && plan.filePath) {
+      const record = plan.record;
+      const filePath = plan.filePath;
+      if (!dryRun && record && filePath) {
         // SAFETY: record starts as a spread of the local task object and only gains plain JSON fields; writeTaskJsonAt serialises it back to the same file.
-        const mergedTask = plan.record as unknown as Task;
-        writeTaskJsonAt(plan.filePath, {
-          ...mergedTask,
-          updated: new Date().toISOString(),
+        const mergedTask = record as unknown as Task;
+        writes.push({
+          path: filePath,
+          write: () =>
+            writeTaskJsonAt(filePath, {
+              ...mergedTask,
+              updated: new Date().toISOString(),
+            }),
         });
       }
       summary.merged++;
@@ -909,15 +1134,23 @@ export function applyPullEntries(
       summary.filesKept++;
       continue;
     }
+    const target = join(getFilesDir(projectDir, fp.file.clientId), fp.safeName);
     if (!dryRun) {
-      mkdirSync(getFilesDir(projectDir, fp.file.clientId), { recursive: true });
-      writeFileSync(
-        join(getFilesDir(projectDir, fp.file.clientId), fp.safeName),
-        fp.file.data,
-      );
+      const dir = getFilesDir(projectDir, fp.file.clientId);
+      writes.push({
+        path: target,
+        write: () => {
+          mkdirSync(dir, { recursive: true });
+          writeFileSync(target, fp.file.data);
+        },
+      });
     }
     summary.filesWritten++;
   }
+  // Journal first, then every planned write, then drop the journal: a throw
+  // or a kill past this point leaves the store either fully applied or fully
+  // unchanged — never half.
+  if (!dryRun) applyPullWrites(projectDir, writes);
   summary.missingBytes = staging.missingBytes.length;
 
   if (ceilingTouched && !dryRun) invalidateSortKeyCeiling(projectDir);
@@ -1024,9 +1257,10 @@ function stagedFilesFor(
  * Full pull from an in-memory gzipped archive: stage → read → verify-and-merge.
  * Verification is the first step of applyPullEntries, so every mismatch
  * throws PullVerifyError with zero store writes (the temp dir is still
- * cleaned up); only I/O failures during the planned write phase can leave
- * partial writes, and those surface as plain Errors, never as verify
- * failures. `dryRun` verifies and reports the plan without writing anything.
+ * cleaned up). The write phase itself is journaled: an I/O failure rolls the
+ * merge back before it surfaces (and a killed process is undone by the next
+ * pull), so no failure path leaves a half-applied store.
+ * `dryRun` verifies and reports the plan without writing anything.
  */
 export async function runPullFromBytes(
   projectDir: string,
