@@ -16,7 +16,11 @@ import { themeDecorator } from "../../.storybook/ThemeDecorator";
  * - `Stale` — a failed refresh keeps the saved rows and turns the header into
  *   "couldn't refresh — read N s ago";
  * - `Evicted` — the feed says events older than its window are gone, and the
- *   log repeats it instead of implying a complete history.
+ *   log repeats it instead of implying a complete history;
+ * - `Working` / `Idle` — the "working on" claim (ticket qxvptxkta) is rendered
+ *   only while it is credible. A live claim names its agent and its age; a
+ *   claim past its TTL reads `idle, watching` exactly like a board that
+ *   reports none, so a dead writer can never leave a frozen line behind.
  *
  * The feed route is stubbed in `beforeEach`, BEFORE the component mounts: the
  * log reads once on mount, and a stub installed inside `play` would arrive
@@ -65,6 +69,8 @@ interface FeedBody {
   gap: boolean;
   truncated: boolean;
   count: number;
+  /** Live "working on" claims, one per task (ticket qxvptxkta). */
+  current?: Array<{ taskId: string; agent: string; at: number }>;
 }
 
 function feed(
@@ -190,6 +196,63 @@ export const Evicted: Story = {
     expect(
       canvas.getByText("Older activity may have been evicted from the feed."),
     ).toBeInTheDocument();
+    await expectNoA11yViolations(canvasElement);
+    restoreFetch?.();
+  },
+};
+
+export const Working: Story = {
+  args: { endpoint: ENDPOINT, taskId: TASK_ID, pollIntervalMs: 60_000 },
+  beforeEach: async () => {
+    const now = Date.now();
+    stubFeed({
+      ...feed([
+        {
+          id: "evt_2",
+          ts: new Date(now - 12_000).toISOString(),
+          type: "task.update",
+          actor: "agent",
+          agent: "pi-1187",
+          changed: ["status"],
+          to: { status: "in-progress" },
+        },
+      ]),
+      current: [{ taskId: TASK_ID, agent: "pi-1187", at: now - 12_000 }],
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByText("claimed");
+    // The claim is rendered as a claim: WHO, and how old the evidence is.
+    expect(
+      canvas.getByText(/^pi-1187 working on this task · \d+ s ago$/),
+    ).toBeInTheDocument();
+    await expectNoA11yViolations(canvasElement);
+    restoreFetch?.();
+  },
+};
+
+export const Idle: Story = {
+  args: { endpoint: ENDPOINT, taskId: TASK_ID, pollIntervalMs: 60_000 },
+  beforeEach: async () => {
+    // A board that did NOT filter the expired claim. The panel applies the
+    // same age rule, so the reader still never sees "working on".
+    stubFeed({
+      ...feed([]),
+      current: [
+        {
+          taskId: TASK_ID,
+          agent: "pi-1187",
+          at: Date.now() - 10 * 60_000,
+        },
+      ],
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByText("No activity for this task yet.");
+    expect(canvas.getByText("idle, watching")).toBeInTheDocument();
+    expect(canvas.queryByText(/working on this task/)).toBeNull();
     await expectNoA11yViolations(canvasElement);
     restoreFetch?.();
   },

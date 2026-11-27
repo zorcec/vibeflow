@@ -30,6 +30,21 @@ export const TASK_ACTIVITY_LOG_LIMIT = 20;
 /** How often the OPEN log re-reads. A closed panel unmounts it (no polling). */
 export const TASK_ACTIVITY_LOG_POLL_MS = 10_000;
 
+/**
+ * How long a "working on" claim stays credible (ticket qxvptxkta).
+ *
+ * The board already drops expired claims, so this is the SECOND guard, for the
+ * one case the board cannot cover: a clock that ran backwards or a claim that
+ * arrives stale from an older/hosted board. Past this age the line reads
+ * `idle, watching` — the same vocabulary the Watching badge uses — because a
+ * claim that old is no evidence of work, and printing its age would be a
+ * frozen "working on X".
+ *
+ * Duplicated from the CLI registry on purpose: the UI package cannot import
+ * the CLI, exactly like the payload shapes it mirrors.
+ */
+export const TASK_ACTIVITY_CLAIM_TTL_MS = 90_000;
+
 /** One feed event, as this log reads it — the fields it renders, nothing more. */
 export interface TaskActivityEvent {
   id: string;
@@ -130,10 +145,37 @@ function eventFrom(raw: unknown): TaskActivityEvent | null {
   };
 }
 
+/** A live "working on" claim, as the feed answer reports it. */
+export interface TaskActivityClaim {
+  taskId: string;
+  /** The agent that caused the work, not the reader that reported it. */
+  agent: string;
+  /** When the claiming follower delivered the work signal (epoch ms). */
+  at: number;
+}
+
 interface FeedAnswer {
   events: TaskActivityEvent[];
   /** The feed evicted events before the window it could serve. */
   gap: boolean;
+  /** Who is working on THIS task right now, or null — never a stale claim. */
+  claim: TaskActivityClaim | null;
+}
+
+function claimFrom(raw: unknown, taskId: string, now: number): TaskActivityClaim | null {
+  if (!Array.isArray(raw)) return null;
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const c = entry as Record<string, unknown>;
+    if (c.taskId !== taskId) continue;
+    if (typeof c.agent !== "string" || c.agent === "") continue;
+    if (typeof c.at !== "number" || !Number.isFinite(c.at) || c.at <= 0) continue;
+    // Expired is the same as absent: the point of the whole feature is that a
+    // claim cannot outlive the writer that kept it fresh.
+    if (now - c.at >= TASK_ACTIVITY_CLAIM_TTL_MS) return null;
+    return { taskId, agent: c.agent, at: c.at };
+  }
+  return null;
 }
 
 function feedAnswerFrom(raw: unknown, taskId: string): FeedAnswer | null {
@@ -148,7 +190,11 @@ function feedAnswerFrom(raw: unknown, taskId: string): FeedAnswer | null {
     .filter((e) => e.taskId === taskId);
   // Newest first — the row nearest the header is the most recent fact.
   events.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
-  return { events, gap: body.gap === true };
+  return {
+    events,
+    gap: body.gap === true,
+    claim: claimFrom(body.current, taskId, Date.now()),
+  };
 }
 
 const ROW_TEXT: React.CSSProperties = {
@@ -282,6 +328,28 @@ export function TaskActivityLog({
           </span>
         )}
       </div>
+
+      {/* "Working on" (ticket qxvptxkta). It is a CLAIM, so it is rendered
+          as one: an agent name plus how long ago the claim was delivered, and
+          `idle, watching` the moment the board stops reporting it. Never a
+          claim without a sender, never a stale one with a minute count. */}
+      <p
+        id="dp-log-current"
+        data-state={answer?.claim ? "working" : "idle"}
+        style={{
+          fontSize: 10,
+          padding: "4px 0 0",
+          color: answer?.claim
+            ? "var(--t-text-body)"
+            : "var(--t-text-faint)",
+        }}
+      >
+        {answer === null
+          ? "…"
+          : answer.claim === null
+            ? "idle, watching"
+            : `${answer.claim.agent} working on this task · ${agoLabel(now - answer.claim.at)}`}
+      </p>
 
       {answer === null ? (
         failed ? (

@@ -24,6 +24,15 @@
  * say what the follower is doing, not just that it exists. It is overwritten
  * as the feed moves and is never inferred from the task assignee: the
  * follower is a reader, and guessing who writes would be a lie.
+ *
+ * Current (ticket qxvptxkta): the identity additionally carries the "working
+ * on" CLAIM — the task THIS agent was last seen taking up. It is set from a
+ * delivered `task.claim` / `to.status: in-progress` event written by the
+ * follower's own agent, cleared when that task leaves in-progress, and it
+ * rides every register/heartbeat because it lives on this identity object.
+ * That is the whole renewal mechanism: no second timer. Its TTL lives in the
+ * registry (`TASK_CLAIM_TTL_MS`), which also reaps the entry when the process
+ * stops heartbeating — so the claim can never outlive the process.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -37,6 +46,7 @@ import {
   type FetchTransport,
   type NotificationTarget,
 } from "./notifications-fetch.js";
+import type { TaskClaim } from "./subscribers.js";
 
 /** The follower's re-registration cadence — the registry owns the number. */
 export { SUBSCRIBER_HEARTBEAT_MS } from "./subscribers.js";
@@ -77,6 +87,8 @@ export interface NotificationSubscriberIdentity {
   agent: string;
   /** Last delivered event; absent until the follower has delivered one. */
   activity?: SubscriberActivity;
+  /** The task this agent was last seen taking up; absent when none. */
+  current?: TaskClaim;
 }
 
 /** One `{ok}` result shape for register/heartbeat/unregister. */
@@ -146,6 +158,51 @@ export function activityFromEvent(
   return activity;
 }
 
+/** What one read event does to the follower's "working on" claim. */
+export type ClaimUpdate = { current: TaskClaim } | { cleared: true } | null;
+
+/**
+ * Read one feed event as a CLAIM signal for `selfAgent`.
+ *
+ * Only the follower's OWN agent can move its claim: the claim says "the agent
+ * in this session is working on task X", so a peer's claim is not ours to
+ * carry (that is the per-agent activity, a different field).
+ *
+ * - `task.claim`, or `task.update` whose `to.status` is `in-progress` → the
+ *   task is being taken up NOW; the claim is replaced.
+ * - any event that moves a task OUT of in-progress (`review`, `done`, back to
+ *   `todo`) → the claim is CLEARED at once rather than left to expire: a
+ *   finished agent must not keep saying "working on" for the rest of the TTL.
+ * - anything else → no change (a comment on the task does not restart it).
+ *
+ * The event's `ts` is deliberately not the clock: `at` is when this follower
+ * READ the signal, because the claim's lifetime is this process's life.
+ */
+export function claimUpdateFromEvent(
+  event: unknown,
+  selfAgent: string | undefined,
+  now: number = Date.now(),
+): ClaimUpdate {
+  if (selfAgent === undefined || selfAgent === "") return null;
+  const e = (event ?? {}) as {
+    taskId?: unknown;
+    agent?: unknown;
+    type?: unknown;
+    to?: Record<string, unknown>;
+  };
+  if (e.agent !== selfAgent) return null;
+  if (typeof e.taskId !== "string" || e.taskId === "") return null;
+  const status = e.to?.["status"];
+  const nextStatus = typeof status === "string" ? status : undefined;
+  if (e.type === "task.claim" || nextStatus === "in-progress") {
+    return { current: { taskId: e.taskId, agent: selfAgent, at: now } };
+  }
+  if (nextStatus === "review" || nextStatus === "done" || nextStatus === "todo") {
+    return { cleared: true };
+  }
+  return null;
+}
+
 function localOrigin(projectDir: string): string {
   // The served port lives in `<project>/.vibeflow/config.json` (default
   // 3700) — the same file `verify` and the screenshot URLs read. `serve`
@@ -209,6 +266,9 @@ export async function registerNotificationSubscriber(
       // Omitted until something was delivered: an absent activity is the
       // honest "no events yet", not a fabricated idle timestamp.
       ...(identity.activity !== undefined ? { activity: identity.activity } : {}),
+      // Same rule for the claim: absent is "not working on anything", never a
+      // placeholder the board could render as a stale line.
+      ...(identity.current !== undefined ? { current: identity.current } : {}),
     }),
   };
   try {

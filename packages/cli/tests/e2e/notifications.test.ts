@@ -105,6 +105,10 @@ describe("GET /api/notifications (e2e)", () => {
       truncated: false,
       count: 0,
       filteredCount: 0,
+      // The live "working on" claims ride the same answer (ticket qxvptxkta);
+      // a board with no follower reporting one still sends the field, so the
+      // reader never has to treat absence as a route it can guess at.
+      current: [],
     });
 
     // ── task.create ──────────────────────────────────────────────────────

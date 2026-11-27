@@ -9,9 +9,11 @@ import { readNotificationsWithWait } from "../core/notifications-wait.js";
 import { notifyBoardEffect } from "./notify-board.js";
 import {
   listSubscribers,
+  listTaskClaims,
   registerSubscriber,
   removeSubscriber,
   type SubscriberActivity,
+  type TaskClaim,
 } from "../core/subscribers.js";
 import { assertRemovableTag, removeTagFromAllTasks } from "../core/remove-tag.js";
 import { getTaskRoot } from "../core/task-listing.js";
@@ -415,6 +417,26 @@ function parseSubscriberActivity(
   };
 }
 
+/**
+ * The optional "working on" claim a follower sends with its register/heartbeat
+ * (ticket qxvptxkta). Best-effort like `activity`: a malformed claim is
+ * DROPPED, never a 400 that would fail a heartbeat — a lost claim costs one
+ * heartbeat, a failed one costs the whole watching row.
+ */
+function parseSubscriberClaim(raw: unknown): TaskClaim | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  const c = raw as Record<string, unknown>;
+  const taskId = typeof c.taskId === "string" ? c.taskId.trim().slice(0, 128) : "";
+  const agent = typeof c.agent === "string" ? c.agent.trim().slice(0, 64) : "";
+  if (taskId === "" || agent === "") return undefined;
+  if (typeof c.at !== "number" || !Number.isFinite(c.at) || c.at <= 0) {
+    return undefined;
+  }
+  return { taskId, agent, at: c.at };
+}
+
 /** Registers all /api/tasks routes on the given Express app. */
 function registerTaskApi(
   app: express.Application,
@@ -546,7 +568,18 @@ function registerTaskApi(
         ? { waitMs: Number.parseInt(waitParam.trim(), 10) }
         : {}),
     });
-    res.json({ ...answer.read, ...(answer.wait ? { wait: answer.wait } : {}) });
+    // The "working on" claims ride the SAME answer the per-task log already
+    // reads (ticket qxvptxkta): the panel asks once, not twice. Only LIVE
+    // claims are returned — an expired one is not sent with an age the reader
+    // could render as a frozen "working on", it is simply absent. `?taskId=`
+    // narrows to the panel's task; without it the board's live claims are
+    // returned (bounded by the follower count).
+    const claims = listTaskClaims(projectDir, Date.now(), filter["taskId"]);
+    res.json({
+      ...answer.read,
+      ...(answer.wait ? { wait: answer.wait } : {}),
+      current: claims,
+    });
   });
 
   // Watching badge (ticket cgor65lmpv31cib1ef9zce5m): the same three
@@ -578,12 +611,17 @@ function registerTaskApi(
     }
     const rawAgent = typeof body.agent === "string" ? body.agent.trim() : "";
     const activity = parseSubscriberActivity(body.activity);
+    const current = parseSubscriberClaim(body.current);
     registerSubscriber(projectDir, {
       subscriberId,
       agent: rawAgent === "" ? "agent" : rawAgent.slice(0, 64),
       // No account exists on the local board: one named row, never a guess.
       user: "local",
       ...(activity !== undefined ? { activity } : {}),
+      // Replaced, never merged: the heartbeat is the whole truth about what
+      // this follower is working on, and an absent field CLEARS the claim (a
+      // follower that finished must not leave the old task behind).
+      ...(current !== undefined ? { current } : {}),
     });
     res.json({ subscriberId, total: listSubscribers(projectDir).total });
   });

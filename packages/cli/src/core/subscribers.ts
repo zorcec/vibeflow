@@ -25,6 +25,21 @@
  *   is overwritten by every register/heartbeat, never accumulated: the badge
  *   reports "what it last read", and a stale delivery must not outlive the
  *   next heartbeat that carries the current one.
+ * - `current` is the follower's "working on" CLAIM (ticket qxvptxkta): the
+ *   task its agent was last seen taking up, with the delivery time as the TTL
+ *   clock — see {@link TASK_CLAIM_TTL_MS}.
+ *
+ * ## Why the claim lives HERE and not on the task
+ *
+ * A claim must never outlive the process that made it. This registry is the
+ * one place where that is free: it is in-memory, it is never persisted, and a
+ * process that stops heartbeating is PURGED on the next read. Writing the
+ * claim to the task record instead would be wrong twice over: the record is
+ * `z.strict()`, so an unknown root key QUARANTINES the task, and a sidecar
+ * under `.vibeflow/tasks/` is resolved by `findTaskFilePath` AS the record —
+ * the trap ticket dh4jdeta documents for the lease sidecar. A persisted claim
+ * would also survive the restart that killed its writer, which is precisely
+ * the frozen "working on X" line this design exists to remove.
  */
 
 /** A follower's heartbeat window. Must be a multiple of the CLI's interval. */
@@ -32,6 +47,36 @@ export const SUBSCRIBER_TTL_MS = 90_000;
 
 /** How often `vibeflow notifications --follow` re-registers. */
 export const SUBSCRIBER_HEARTBEAT_MS = 30_000;
+
+/**
+ * How long a "working on" claim stays credible after the delivery it came
+ * from, in milliseconds.
+ *
+ * 3 × the heartbeat, the same number as {@link SUBSCRIBER_TTL_MS}, and the
+ * two clocks answer two different questions:
+ * - `SUBSCRIBER_TTL_MS` — is the PROCESS still alive? A dead follower's whole
+ *   entry (claim included) is purged, so its claim cannot survive it.
+ * - `TASK_CLAIM_TTL_MS` — was work on that task still being DELIVERED? A live
+ *   follower that delivered nothing for that task stops claiming it, so a live
+ *   but idle agent fades to `idle, watching` instead of holding a frozen line.
+ *   The heartbeat CARRIES the claim (it rides the identity, so no second timer
+ *   exists); it deliberately does not refresh this clock, because a heartbeat
+ *   proves the process lives, not that it is still working that task.
+ */
+export const TASK_CLAIM_TTL_MS = 90_000;
+
+/**
+ * One follower's "working on" claim: the task its agent was last seen taking
+ * up, and when that was DELIVERED.
+ */
+export interface TaskClaim {
+  /** The task the delivered event named. */
+  taskId: string;
+  /** The agent that CAUSED the work (the event's `agent`), not the follower. */
+  agent: string;
+  /** When this follower delivered the work signal (epoch ms) — the TTL clock. */
+  at: number;
+}
 
 /** The last feed event a follower delivered, as its identity reports it. */
 export interface SubscriberActivity {
@@ -52,6 +97,8 @@ export interface SubscriberIdentity {
   user: string;
   /** Last delivered event; absent until the follower has delivered one. */
   activity?: SubscriberActivity;
+  /** The task this follower's agent is working on; absent when it claimed none. */
+  current?: TaskClaim;
 }
 
 /** One live follower, as the badge lists it. */
@@ -64,6 +111,7 @@ interface SubscriberSnapshotEntry {
   /** Last register/heartbeat (ms); the TTL clock. */
   lastSeenAt: number;
   activity?: SubscriberActivity;
+  current?: TaskClaim;
 }
 
 /** What the badge consumes: live followers plus the legacy aggregates. */
@@ -112,6 +160,39 @@ function purge(boardId: string, now: number): Map<string, SubscriberEntry> | nul
     return null;
   }
   return registry;
+}
+
+/**
+ * The live "working on" claims, one per task: the newest claim wins when two
+ * followers claim the same task (the later delivery is the better evidence,
+ * and the read never invents a merged owner).
+ *
+ * Expired claims are DROPPED, never returned with an age the caller could
+ * render as a stale "working on" line — the same rule `purge` applies to the
+ * followers themselves. `taskId` narrows to one task (the DetailPanel's read),
+ * applied after the TTL check so a narrow read cannot resurrect a claim the
+ * wide read already reports as gone.
+ */
+export function listTaskClaims(
+  boardId: string,
+  now: number = Date.now(),
+  taskId?: string,
+): TaskClaim[] {
+  const registry = purge(boardId, now);
+  const newest = new Map<string, TaskClaim>();
+  for (const entry of registry?.values() ?? []) {
+    const claim = entry.current;
+    if (claim === undefined) continue;
+    if (now - claim.at >= TASK_CLAIM_TTL_MS) continue;
+    if (taskId !== undefined && claim.taskId !== taskId) continue;
+    const previous = newest.get(claim.taskId);
+    if (previous === undefined || claim.at > previous.at) {
+      newest.set(claim.taskId, claim);
+    }
+  }
+  return [...newest.values()].sort(
+    (a, b) => b.at - a.at || a.taskId.localeCompare(b.taskId),
+  );
 }
 
 /** Register a follower — also the heartbeat (same id, refreshed clock). */
@@ -169,6 +250,7 @@ export function listSubscribers(
       registeredAt: entry.registeredAt,
       lastSeenAt: entry.lastSeenAt,
       ...(entry.activity !== undefined ? { activity: entry.activity } : {}),
+      ...(entry.current !== undefined ? { current: entry.current } : {}),
     });
   }
   subscribers.sort(

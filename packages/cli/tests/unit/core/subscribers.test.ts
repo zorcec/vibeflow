@@ -16,8 +16,10 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   SUBSCRIBER_HEARTBEAT_MS,
   SUBSCRIBER_TTL_MS,
+  TASK_CLAIM_TTL_MS,
   __resetSubscribersForTests,
   listSubscribers,
+  listTaskClaims,
   registerSubscriber,
   removeSubscriber,
 } from "../../../src/core/subscribers.js";
@@ -187,5 +189,109 @@ describe("local notification subscriber registry", () => {
       false,
     );
     expect(listSubscribers(BOARD, T0 + SUBSCRIBER_TTL_MS).total).toBe(0);
+  });
+});
+
+/**
+ * The "working on" claim (ticket qxvptxkta). The rule the whole feature lives
+ * or dies by: a claim must never outlive the process that made it, and a claim
+ * nobody is renewing must not survive as a frozen line either. Two clocks, both
+ * proven here — the claim TTL (work stopped) and the subscriber TTL (process
+ * died).
+ */
+describe("the 'working on' claim", () => {
+  beforeEach(() => {
+    __resetSubscribersForTests();
+  });
+
+  function claim(taskId: string, at: number, agent = "pi-77") {
+    return { taskId, agent, at };
+  }
+
+  it("a dead agent's claim disappears at the claim TTL", () => {
+    // The follower is alive (a heartbeat at T0) and claims task-a at T0.
+    registerSubscriber(BOARD, { ...sub("sub_a", "pi-77"), current: claim("task-a", T0) }, T0);
+    // Still credible one millisecond before the TTL…
+    expect(listTaskClaims(BOARD, T0 + TASK_CLAIM_TTL_MS - 1)).toEqual([
+      claim("task-a", T0),
+    ]);
+    // …and GONE at it. No age, no "last seen": the answer is silence, so a
+    // reader that only renders what it is sent renders `idle, watching`.
+    expect(listTaskClaims(BOARD, T0 + TASK_CLAIM_TTL_MS)).toEqual([]);
+  });
+
+  it("a live agent renews the claim by delivering again", () => {
+    registerSubscriber(BOARD, { ...sub("sub_a", "pi-77"), current: claim("task-a", T0) }, T0);
+    // One heartbeat later the follower delivered new work on the same task:
+    // the claim's `at` moves, which is the ONLY renewal (the heartbeat itself
+    // re-sends it but does not refresh the clock).
+    const renewedAt = T0 + SUBSCRIBER_HEARTBEAT_MS;
+    registerSubscriber(
+      BOARD,
+      { ...sub("sub_a", "pi-77"), current: claim("task-a", renewedAt) },
+      renewedAt,
+    );
+    // Past the FIRST claim's TTL, still live because it was renewed.
+    const later = T0 + TASK_CLAIM_TTL_MS + 10_000;
+    expect(listTaskClaims(BOARD, later)).toEqual([claim("task-a", renewedAt)]);
+  });
+
+  it("fades a STILL-LIVE follower's stale claim: a heartbeat is not work", () => {
+    registerSubscriber(BOARD, { ...sub("sub_a", "pi-77"), current: claim("task-a", T0) }, T0);
+    // The process is unmistakably alive — it heartbeated well after the claim.
+    const beat = T0 + 2 * TASK_CLAIM_TTL_MS;
+    registerSubscriber(
+      BOARD,
+      { ...sub("sub_a", "pi-77"), current: claim("task-a", T0) },
+      beat,
+    );
+    expect(listSubscribers(BOARD, beat).total).toBe(1);
+    // …but it delivered no work on the task since T0, so it is not working on
+    // it: the reader gets silence and renders `idle, watching`.
+    expect(listTaskClaims(BOARD, beat)).toEqual([]);
+  });
+
+  it("reaps the claim with the process, even before the claim TTL is re-checked", () => {
+    registerSubscriber(BOARD, { ...sub("sub_a", "pi-77"), current: claim("task-a", T0) }, T0);
+    // No heartbeat since T0: the registry purges the whole entry, claim
+    // included. This is the property a persisted claim could not have.
+    expect(listTaskClaims(BOARD, T0 + SUBSCRIBER_TTL_MS)).toEqual([]);
+    expect(listSubscribers(BOARD, T0 + SUBSCRIBER_TTL_MS).total).toBe(0);
+  });
+
+  it("clears the claim the moment a heartbeat stops carrying it", () => {
+    registerSubscriber(BOARD, { ...sub("sub_a", "pi-77"), current: claim("task-a", T0) }, T0);
+    // The agent finished the task: the next heartbeat omits `current`.
+    registerSubscriber(BOARD, sub("sub_a", "pi-77"), T0 + SUBSCRIBER_HEARTBEAT_MS);
+    expect(listTaskClaims(BOARD, T0 + SUBSCRIBER_HEARTBEAT_MS)).toEqual([]);
+  });
+
+  it("narrows to one task and reports the NEWEST claim when two followers overlap", () => {
+    registerSubscriber(BOARD, { ...sub("sub_a", "pi-77"), current: claim("task-a", T0) }, T0);
+    registerSubscriber(
+      BOARD,
+      { ...sub("sub_b", "pi-88"), current: claim("task-b", T0 + 5_000, "pi-88") },
+      T0 + 5_000,
+    );
+    registerSubscriber(
+      BOARD,
+      { ...sub("sub_c", "pi-99"), current: claim("task-a", T0 + 9_000, "pi-99") },
+      T0 + 9_000,
+    );
+    expect(listTaskClaims(BOARD, T0 + 10_000, "task-a")).toEqual([
+      claim("task-a", T0 + 9_000, "pi-99"),
+    ]);
+    expect(listTaskClaims(BOARD, T0 + 10_000).map((c) => c.taskId)).toEqual([
+      "task-a",
+      "task-b",
+    ]);
+  });
+
+  it("carries the claim on the watcher snapshot the board already serves", () => {
+    registerSubscriber(BOARD, { ...sub("sub_a", "pi-77"), current: claim("task-a", T0) }, T0);
+    expect(listSubscribers(BOARD, T0).subscribers[0]).toMatchObject({
+      subscriberId: "sub_a",
+      current: claim("task-a", T0),
+    });
   });
 });

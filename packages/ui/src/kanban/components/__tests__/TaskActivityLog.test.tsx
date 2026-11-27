@@ -13,6 +13,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import {
+  TASK_ACTIVITY_CLAIM_TTL_MS,
   TaskActivityLog,
   agoLabel,
   eventDetail,
@@ -264,5 +265,86 @@ describe("TaskActivityLog", () => {
     const rows = container.querySelectorAll("#dp-log-rows li");
     expect(rows).toHaveLength(1);
     expect(rows[0]?.textContent).toContain("updated");
+  });
+});
+
+/**
+ * "Working on" claim (ticket qxvptxkta). The line is a CLAIM, so it is
+ * rendered as one — and it is only ever rendered while it is still credible.
+ * The acceptance the ticket states: the UI shows idle rather than a frozen
+ * line, because a claim must never outlive the process that made it.
+ */
+describe("TaskActivityLog — the 'working on' claim", () => {
+  function withClaim(claim: unknown) {
+    return { ...feed([]), current: claim };
+  }
+
+  it("names the claiming agent while the claim is fresh", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        ok(withClaim([{ taskId: "task-a", agent: "pi-77", at: Date.now() - 12_000 }])),
+      ),
+    );
+    const { container } = render(
+      <TaskActivityLog endpoint="/api/notifications" taskId="task-a" pollIntervalMs={60_000} />,
+    );
+    await waitFor(() =>
+      expect(container.querySelector("#dp-log-current")).toHaveAttribute("data-state", "working"),
+    );
+    expect(container.querySelector("#dp-log-current")?.textContent).toBe(
+      "pi-77 working on this task · 12 s ago",
+    );
+  });
+
+  it("shows `idle, watching` — never a stale claim — once the claim outlives its TTL", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        ok(
+          withClaim([
+            {
+              taskId: "task-a",
+              agent: "pi-77",
+              // A dead agent's claim: the board should have dropped it, and a
+              // board that did not must still not paint "working on".
+              at: Date.now() - TASK_ACTIVITY_CLAIM_TTL_MS - 60_000,
+            },
+          ]),
+        ),
+      ),
+    );
+    const { container } = render(
+      <TaskActivityLog endpoint="/api/notifications" taskId="task-a" pollIntervalMs={60_000} />,
+    );
+    await waitFor(() => expect(container.querySelector("#dp-log-empty")).not.toBeNull());
+    const line = container.querySelector("#dp-log-current");
+    expect(line).toHaveAttribute("data-state", "idle");
+    expect(line?.textContent).toBe("idle, watching");
+  });
+
+  it("shows `idle, watching` when the board reports no claim at all", async () => {
+    // An older board omits `current` entirely; absence must read as idle, not
+    // as a failure and not as a blank line.
+    vi.stubGlobal("fetch", vi.fn(() => ok(feed([]))));
+    const { container } = render(
+      <TaskActivityLog endpoint="/api/notifications" taskId="task-a" pollIntervalMs={60_000} />,
+    );
+    await waitFor(() => expect(container.querySelector("#dp-log-empty")).not.toBeNull());
+    expect(container.querySelector("#dp-log-current")?.textContent).toBe("idle, watching");
+  });
+
+  it("ignores a claim naming another task", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        ok(withClaim([{ taskId: "task-b", agent: "pi-88", at: Date.now() - 5_000 }])),
+      ),
+    );
+    const { container } = render(
+      <TaskActivityLog endpoint="/api/notifications" taskId="task-a" pollIntervalMs={60_000} />,
+    );
+    await waitFor(() => expect(container.querySelector("#dp-log-empty")).not.toBeNull());
+    expect(container.querySelector("#dp-log-current")?.textContent).toBe("idle, watching");
   });
 });

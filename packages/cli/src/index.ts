@@ -40,6 +40,7 @@ import {
 import {
   SUBSCRIBER_HEARTBEAT_MS,
   activityFromEvent,
+  claimUpdateFromEvent,
   createSubscriberIdentity,
   registerNotificationSubscriber,
   unregisterNotificationSubscriber,
@@ -8424,6 +8425,21 @@ async function followNotifications(
       const key = id ?? JSON.stringify(event);
       if (emitted.has(key)) continue;
       rememberEmitted(key);
+      // The "working on" claim (ticket qxvptxkta) is read BEFORE the
+      // self-suppression filter, and that is not an oversight: self-
+      // suppression hides this agent's OWN writes from the terminal, while a
+      // claim is exactly about what this agent is doing — filtering it would
+      // leave the field permanently empty. A peer's claim never matches
+      // (`claimUpdateFromEvent` keys on the event's `agent`).
+      const claimUpdate = claimUpdateFromEvent(event, subscriber.agent);
+      if (claimUpdate !== null) {
+        if ("current" in claimUpdate) subscriber.current = claimUpdate.current;
+        else delete subscriber.current;
+        // Push the change on the EXISTING registration path instead of
+        // waiting up to a heartbeat: a claim that lands 30 s late is already
+        // a third of its TTL old. No new timer — the same POST, once.
+        if (registeredTarget !== null) sendRegistration(registeredTarget);
+      }
       // Self-suppression (ticket kzxaq0fd) lives HERE, in the delivery path
       // only: the cursor above still advances over the event, and a one-shot
       // `--json` read stays complete (a consumer may apply its own rule from

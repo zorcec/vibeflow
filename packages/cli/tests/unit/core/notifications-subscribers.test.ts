@@ -15,6 +15,7 @@ import { writeConfig } from "../../../src/core/config.js";
 import {
   NOTIFICATION_SUBSCRIBERS_LOCAL_PATH,
   activityFromEvent,
+  claimUpdateFromEvent,
   createSubscriberIdentity,
   registerNotificationSubscriber,
   unregisterNotificationSubscriber,
@@ -249,5 +250,55 @@ describe("unregisterNotificationSubscriber (local)", () => {
       ok: false,
       message: "Subscriber unregister failed: HTTP 500",
     });
+  });
+});
+
+/**
+ * Which delivered events move this follower's "working on" claim (ticket
+ * qxvptxkta). Own-agent only — a peer's claim is not this follower's to carry
+ * — and a finished task is cleared at once instead of lingering for the TTL.
+ */
+describe("claimUpdateFromEvent", () => {
+  const T = Date.UTC(2026, 10, 27, 12, 0, 0);
+  const me = "pi-77";
+
+  it("claims the task on task.claim and on an in-progress status", () => {
+    expect(claimUpdateFromEvent({ type: "task.claim", taskId: "task-a", agent: me }, me, T)).toEqual({
+      current: { taskId: "task-a", agent: me, at: T },
+    });
+    expect(
+      claimUpdateFromEvent(
+        { type: "task.update", taskId: "task-a", agent: me, to: { status: "in-progress" } },
+        me,
+        T,
+      ),
+    ).toEqual({ current: { taskId: "task-a", agent: me, at: T } });
+  });
+
+  it("clears the claim when the task leaves in-progress", () => {
+    for (const status of ["review", "done", "todo"]) {
+      expect(
+        claimUpdateFromEvent(
+          { type: "task.update", taskId: "task-a", agent: me, to: { status } },
+          me,
+          T,
+        ),
+      ).toEqual({ cleared: true });
+    }
+  });
+
+  it("ignores a peer's claim, a comment, and an unidentified follower", () => {
+    // A peer taking task-b is THEIR claim — reporting it as ours would name
+    // the wrong agent on our row.
+    expect(
+      claimUpdateFromEvent({ type: "task.claim", taskId: "task-b", agent: "pi-88" }, me, T),
+    ).toBeNull();
+    // A comment does not restart a claim, and neither does a non-status edit.
+    expect(
+      claimUpdateFromEvent({ type: "task.comment", taskId: "task-a", agent: me }, me, T),
+    ).toBeNull();
+    // No identity = no attribution: silence beats guessing whose claim it is.
+    expect(claimUpdateFromEvent({ type: "task.claim", taskId: "task-a" }, "agent", T)).toBeNull();
+    expect(claimUpdateFromEvent({ type: "task.claim", taskId: "task-a", agent: me }, undefined, T)).toBeNull();
   });
 });
