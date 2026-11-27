@@ -367,6 +367,64 @@ setInterval(() => {}, 1000);
     }
   }, 40_000);
 
+  it("two followers of the SAME agent are one subscriber, not two rows", async () => {
+    // The reported bug (ticket iwibqqek): the badge said "8 agents following"
+    // with eight identical rows named "agent" — every follower restart had
+    // minted a fresh random key, so re-registration could not be idempotent.
+    // Two processes standing in for a restart must land on ONE row.
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir,
+      _testToken: null,
+      _testWorkspace: null,
+    });
+    const port = Number(new URL(instance.url).port);
+    writeConfig(projectDir, { port });
+
+    const followers: ChildProcess[] = [];
+    const spawnFollower = (): ChildProcess => {
+      const proc = spawn(
+        process.execPath,
+        [CLI_ENTRY, "notifications", "--follow", "--local"],
+        {
+          cwd: projectDir,
+          env: isolatedCliEnv({
+            home: cliHome,
+            cwd: projectDir,
+            env: { VIBEFLOW_EVENTS: "1", VIBEFLOW_ACTOR: "e2e-same-agent" },
+          }),
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      followers.push(proc);
+      return proc;
+    };
+    try {
+      spawnFollower();
+      await waitForSubscribers((s) => s.total === 1, "the first follower");
+      spawnFollower();
+
+      // Give the second one time to register, then assert it did NOT add a row.
+      // A bounded poll on "total stays 1" would pass instantly; poll for the
+      // second process to be alive instead, so the assertion means something.
+      const deadline = Date.now() + 15_000;
+      let seen = await readSubscribers();
+      while (seen.total === 1 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 250));
+        seen = await readSubscribers();
+      }
+      expect(seen.total, `rows: ${JSON.stringify(seen.subscribers)}`).toBe(1);
+      expect(seen.subscribers).toHaveLength(1);
+      expect(seen.subscribers[0]!.agent).toBe("e2e-same-agent");
+      // Same key on both, by construction.
+      expect(seen.subscribers[0]!.subscriberId).toMatch(/^sub_[0-9a-f]{26}$/);
+    } finally {
+      for (const proc of followers) {
+        if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL");
+      }
+    }
+  }, 60_000);
+
   it("finds a custom serve port with no flag (serve publishes config.json)", async () => {
     // Ticket xy58j31z: `serve -p <port>` publishes the port it BOUND; the
     // follower reads `<project>/.vibeflow/config.json` (default 3700). No

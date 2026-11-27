@@ -26,8 +26,9 @@
  * follower is a reader, and guessing who writes would be a lie.
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { scopeHeaderFor } from "../auth/board-scope.js";
+import { resolveAgentIdentity } from "./agent-identity.js";
 import { fetchWithTimeout } from "../saas/request.js";
 import { getApiUrl } from "./api-url.js";
 import { readConfig } from "./config.js";
@@ -65,7 +66,12 @@ export interface SubscriberActivity {
 }
 
 export interface NotificationSubscriberIdentity {
-  /** `sub_` + a random UUID; unique per follower process. */
+  /**
+   * The registry key. `sub_` + a hash of the agent identity when one exists
+   * (so a RESTARTED follower replaces its own row), else `sub_` + a random
+   * UUID (two unidentified followers are genuinely indistinguishable, and
+   * inventing a shared key would merge strangers into one row).
+   */
   subscriberId: string;
   /** `$VIBEFLOW_ACTOR`, else "agent" — the event actor rule. */
   agent: string;
@@ -83,14 +89,38 @@ export interface SubscriberCallOptions {
   timeoutMs?: number;
 }
 
-/** The stable identity of THIS follower process. */
+/**
+ * The identity of THIS follower.
+ *
+ * STABLE when the agent is identifiable, and that is the point (ticket
+ * iwibqqek): a per-process random key made every restart a NEW subscriber, so
+ * the badge listed the same single agent eight times — eight rows named
+ * "agent", all carrying the same delivered event, from eight follower
+ * processes started over one session. Re-registering is idempotent by design
+ * (the registry keeps `registeredAt`), but only if the key is the same, so the
+ * key is derived from the agent identity: `pi-<pid>` is the pi session (a
+ * follower restart inside it is the SAME agent) and `$VIBEFLOW_ACTOR` is an
+ * explicit name. Different sessions produce different pids, so two real agents
+ * stay two rows.
+ *
+ * With no identity at all the key stays random on purpose: nothing
+ * distinguishes those followers, and a shared key would hide the second one.
+ * (The pre-fix ghost rows from the shipped 0.28.3 build — which never ran the
+ * unregister paths — still expire on their own heartbeat TTL.)
+ */
 export function createSubscriberIdentity(
   env: NodeJS.ProcessEnv = process.env,
 ): NotificationSubscriberIdentity {
+  const identity = resolveAgentIdentity(env);
+  const subscriberId =
+    identity.id !== undefined
+      ? `sub_${createHash("sha256").update(identity.id).digest("hex").slice(0, 26)}`
+      : `sub_${randomUUID()}`;
   const actor = env.VIBEFLOW_ACTOR?.trim();
   return {
-    subscriberId: `sub_${randomUUID()}`,
-    agent: actor !== undefined && actor !== "" ? actor : "agent",
+    subscriberId,
+    agent:
+      identity.id ?? (actor !== undefined && actor !== "" ? actor : "agent"),
   };
 }
 

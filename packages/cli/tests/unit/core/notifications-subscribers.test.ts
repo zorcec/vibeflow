@@ -47,6 +47,21 @@ describe("createSubscriberIdentity", () => {
     expect(first.activity).toBeUndefined();
   });
 
+  it("keeps the SAME key across a restart when the agent is identifiable (ticket iwibqqek)", () => {
+    // The badge listed one agent eight times because every follower restart
+    // minted a random key: re-registering is idempotent only when the id is
+    // stable. Eight rows, all named "agent", all carrying the same event.
+    const a = createSubscriberIdentity({ VIBEFLOW_ACTOR: "pi-a" });
+    const b = createSubscriberIdentity({ VIBEFLOW_ACTOR: "pi-a" });
+    expect(a.subscriberId).toBe(b.subscriberId);
+    expect(a.subscriberId).toMatch(/^sub_[0-9a-f]{26}$/);
+    // …and two DIFFERENT agents never collide into one row.
+    const other = createSubscriberIdentity({ VIBEFLOW_ACTOR: "pi-b" });
+    expect(other.subscriberId).not.toBe(a.subscriberId);
+    // The display name is the identity itself, not the actor default.
+    expect(a.agent).toBe("pi-a");
+  });
+
   it("names the agent from VIBEFLOW_ACTOR, trimmed, with blank falling back", () => {
     expect(
       createSubscriberIdentity({ VIBEFLOW_ACTOR: "  claude  " }).agent,
