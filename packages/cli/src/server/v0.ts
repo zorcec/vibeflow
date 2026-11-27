@@ -22,6 +22,7 @@
 
 import type { Express, NextFunction, Request, Response } from "express";
 import {
+  apiError,
   V0_OPERATIONS,
   isScopeName,
   parseScopeHeaderValue,
@@ -119,7 +120,8 @@ export interface V0AliasOptions {
 
 /** JSON 404 for v0 paths with no P1 read binding (writes land in Phase 3). */
 function v0NotFound(_req: Request, res: Response): void {
-  res.status(404).json({ error: "Not found" });
+  const refusal = apiError(404, "NOT_FOUND", "Not found");
+  res.status(refusal.status).json(refusal.body);
 }
 
 /**
@@ -141,7 +143,8 @@ function makeAliasHandler(
       );
     } catch (err) {
       if (err instanceof ScopeHeaderError) {
-        res.status(err.status).json({ error: err.message, code: err.code });
+        const refusal = apiError(err.status, err.code, err.message);
+        res.status(refusal.status).json(refusal.body);
         return;
       }
       throw err;
@@ -150,7 +153,8 @@ function makeAliasHandler(
       requireScope(resolve(req), binding.scope);
     } catch (err) {
       if (err instanceof ScopeDeniedError) {
-        res.status(err.status).json({ error: "Forbidden", code: err.code });
+        const refusal = apiError(err.status, err.code, "Forbidden");
+        res.status(refusal.status).json(refusal.body);
         return;
       }
       throw err;

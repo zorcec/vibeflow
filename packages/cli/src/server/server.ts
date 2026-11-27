@@ -132,6 +132,7 @@ import { TASK_STATUSES } from "../core/types.js";
 import { PROTO_DIR, TASKS_DIR, SCREENSHOTS_DIR } from "../core/types.js";
 import { getGitUser } from "../core/git-user.js";
 import { OPENAPI_JSON } from "./openapi.gen.js";
+import { apiError, type ApiErrorDetails } from "@vibeflow-tools/api-core";
 import { registerV0ReadAlias } from "./v0.js";
 import { registerDocsViewer } from "./docs.js";
 import { isLoopbackOrigin } from "../core/loopback.js";
@@ -164,6 +165,24 @@ export function isValidCommentId(id: string): boolean {
   );
 }
 
+/**
+ * Write a refusal in the shared envelope (api-core `apiError`) — the ONE error
+ * shape this surface answers (ticket 0045949e phase 1). `error` stays the
+ * human sentence the board UI renders, `code` is the machine token a client
+ * branches on, and `details` carries the format hints that used to sit at the
+ * top level as `expectedFormat`/`example`.
+ */
+function refuse(
+  res: express.Response,
+  status: number,
+  code: string,
+  message: string,
+  details?: ApiErrorDetails,
+): void {
+  const refusal = apiError(status, code, message, details);
+  res.status(refusal.status).json(refusal.body);
+}
+
 /** Rejects POST/DELETE from cross-origin pages. Returns false and sends 403 if origin is disallowed. */
 function requireSameOrigin(
   req: express.Request,
@@ -171,7 +190,7 @@ function requireSameOrigin(
 ): boolean {
   const origin = req.headers.origin;
   if (origin && !isLoopbackOrigin(origin)) {
-    res.status(403).json({ error: "Forbidden" });
+    refuse(res, 403, "FORBIDDEN", "Forbidden");
     return false;
   }
   return true;
@@ -454,13 +473,16 @@ function registerTaskApi(
     const sinceParam = req.query.since;
     if (sinceParam !== undefined) {
       if (typeof sinceParam !== "string" || Number.isNaN(Date.parse(sinceParam))) {
-        res.status(400).json({
-          error: "INVALID_SINCE",
-          message:
-            "`since` must be an ISO-8601 UTC timestamp with milliseconds, exactly as returned in `nextTs` — e.g. 2026-11-22T16:58:45.140Z. Omit `since` to read the newest events instead.",
-          expectedFormat: "YYYY-MM-DDTHH:mm:ss.sssZ",
-          example: "2026-11-22T16:58:45.140Z",
-        });
+        refuse(
+          res,
+          400,
+          "INVALID_SINCE",
+          "`since` must be an ISO-8601 UTC timestamp with milliseconds, exactly as returned in `nextTs` — e.g. 2026-11-22T16:58:45.140Z. Omit `since` to read the newest events instead.",
+          {
+            expectedFormat: "YYYY-MM-DDTHH:mm:ss.sssZ",
+            example: "2026-11-22T16:58:45.140Z",
+          },
+        );
         return;
       }
     }
@@ -478,12 +500,17 @@ function registerTaskApi(
       // Empty / blank ⇒ "no constraint" (widens), like an omitted one.
       if (raw.trim() === "") continue;
       if (!isValidNotificationFilterValue(raw)) {
-        res.status(400).json({
-          error: "INVALID_FILTER",
-          message: `\`${dimension}\` must be one token of at most ${NOTIFICATION_FILTER_MAX_LENGTH} characters with no control characters. Omit it to widen the feed.`,
-          expectedFormat: `${dimension}=<one token, no control characters>`,
-          example: `${dimension}=${dimension === "status" ? "in-progress" : dimension === "type" ? "task.comment" : "abc123"}`,
-        });
+        refuse(
+          res,
+          400,
+          "INVALID_FILTER",
+          `\`${dimension}\` must be one token of at most ${NOTIFICATION_FILTER_MAX_LENGTH} characters with no control characters. Omit it to widen the feed.`,
+          {
+            dimension,
+            expectedFormat: `${dimension}=<one token, no control characters>`,
+            example: `${dimension}=${dimension === "status" ? "in-progress" : dimension === "type" ? "task.comment" : "abc123"}`,
+          },
+        );
         return;
       }
       filter[dimension] = raw;
@@ -496,13 +523,16 @@ function registerTaskApi(
         typeof waitParam !== "string" ||
         !/^\d+$/.test(waitParam.trim())
       ) {
-        res.status(400).json({
-          error: "INVALID_WAIT",
-          message:
-            "`wait` must be a whole number of milliseconds — e.g. wait=20000. Omit it to poll instead of waiting.",
-          expectedFormat: "<milliseconds, digits only>",
-          example: "wait=20000",
-        });
+        refuse(
+          res,
+          400,
+          "INVALID_WAIT",
+          "`wait` must be a whole number of milliseconds — e.g. wait=20000. Omit it to poll instead of waiting.",
+          {
+            expectedFormat: "<milliseconds, digits only>",
+            example: "wait=20000",
+          },
+        );
         return;
       }
     }
@@ -538,11 +568,12 @@ function registerTaskApi(
       subscriberId.length > 128 ||
       /[\s\x00-\x1f\x7f]/.test(subscriberId)
     ) {
-      res.status(400).json({
-        error:
-          "subscriberId must be a single non-empty token (max 128 characters)",
-        code: "INVALID_SUBSCRIBER",
-      });
+      refuse(
+        res,
+        400,
+        "INVALID_SUBSCRIBER",
+        "subscriberId must be a single non-empty token (max 128 characters)",
+      );
       return;
     }
     const rawAgent = typeof body.agent === "string" ? body.agent.trim() : "";
@@ -563,9 +594,7 @@ function registerTaskApi(
     // would 400 a subscriber token before this handler runs.
     const subscriberId = String(req.params.subscriberId ?? "").trim();
     if (subscriberId === "") {
-      res
-        .status(400)
-        .json({ error: "subscriberId is required", code: "INVALID_SUBSCRIBER" });
+      refuse(res, 400, "INVALID_SUBSCRIBER", "subscriberId is required");
       return;
     }
     // Idempotent: an unknown/expired id is a clean `removed:false`, never a
@@ -619,7 +648,7 @@ function registerTaskApi(
   // Reject invalid task IDs at the router level to prevent path traversal on all :id routes.
   app.param("id", (_req, res, next, id: string) => {
     if (!isValidTaskId(id)) {
-      res.status(400).json({ error: "Invalid task id" });
+      refuse(res, 400, "INVALID_TASK_ID", "Invalid task id");
       return;
     }
     next();
@@ -628,7 +657,7 @@ function registerTaskApi(
   // Reject invalid comment IDs at the router level to prevent path traversal on all :commentId routes.
   app.param("commentId", (_req, res, next, commentId: string) => {
     if (!isValidCommentId(commentId)) {
-      res.status(400).json({ error: "Invalid comment id" });
+      refuse(res, 400, "INVALID_COMMENT_ID", "Invalid comment id");
       return;
     }
     next();
@@ -639,7 +668,7 @@ function registerTaskApi(
     const filePath = findTaskFilePath(projectDir, id);
     const task = filePath ? readTaskFile(filePath) : null;
     if (!task) {
-      res.status(404).json({ error: "Task not found" });
+      refuse(res, 404, "NOT_FOUND", "Task not found");
       return;
     }
     const remoteShas = getRemoteCommitShas(projectDir);
@@ -695,9 +724,13 @@ function registerTaskApi(
     };
 
     if (!title || !selector) {
-      res
-        .status(400)
-        .json({ error: "Missing required fields: title, selector" });
+      refuse(
+        res,
+        400,
+        "INVALID_FIELD",
+        "Missing required fields: title, selector",
+        { fields: ["title", "selector"] },
+      );
       return;
     }
 
@@ -728,9 +761,13 @@ function registerTaskApi(
           // new task (impossible at create time since new task has no children)
           const targetExists = allTasks.some((t) => t.id === link.taskId);
           if (!targetExists) {
-            res.status(400).json({
-              error: `Parent target task ${link.taskId} not found`,
-            });
+            refuse(
+              res,
+              400,
+              "INVALID_LINKS",
+              `Parent target task ${link.taskId} not found`,
+              { taskId: link.taskId },
+            );
             return;
           }
         }
@@ -746,9 +783,13 @@ function registerTaskApi(
       const allTasks = listTasks(projectDir);
       const resolvedParentId = resolveTaskId(projectDir, parent);
       if (!allTasks.some((t) => t.id === resolvedParentId)) {
-        res
-          .status(400)
-          .json({ error: `Parent task not found: ${resolvedParentId}` });
+        refuse(
+          res,
+          400,
+          "INVALID_LINKS",
+          `Parent task not found: ${resolvedParentId}`,
+          { taskId: resolvedParentId },
+        );
         return;
       }
       createLinks = [
@@ -812,7 +853,7 @@ function registerTaskApi(
     try {
       tag = assertRemovableTag(req.body?.tag);
     } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
+      refuse(res, 400, "INVALID_TAG", (error as Error).message);
       return;
     }
     try {
@@ -820,7 +861,12 @@ function registerTaskApi(
       broadcast({ type: "tasks-updated" });
       res.json(result);
     } catch (error) {
-      res.status(500).json({ error: error instanceof Error ? error.message : "Could not remove the tag." });
+      refuse(
+        res,
+        500,
+        "INTERNAL",
+        error instanceof Error ? error.message : "Could not remove the tag.",
+      );
     }
   });
 
@@ -852,7 +898,12 @@ function registerTaskApi(
       updates.status !== undefined &&
       !(TASK_STATUSES as readonly string[]).includes(updates.status as string)
     ) {
-      res.status(400).json({ error: `Invalid status: ${updates.status}` });
+      refuse(
+        res,
+        400,
+        "INVALID_STATUS",
+        `Invalid status: ${updates.status}`,
+      );
       return;
     }
 
@@ -863,7 +914,12 @@ function registerTaskApi(
         const files = listFiles(projectDir, id);
         const hasMdFile = files.some((f) => /\.md$/i.test(f.name));
         if (!hasMdFile) {
-          res.status(422).json({ error: "RESEARCH_REPORT_REQUIRED" });
+          refuse(
+            res,
+            422,
+            "RESEARCH_REPORT_REQUIRED",
+            "Cannot mark Research task as review: no .md report file attached",
+          );
           return;
         }
       }
@@ -879,10 +935,12 @@ function registerTaskApi(
           link.taskId.length === 0 ||
           typeof link.type !== "string"
         ) {
-          res.status(400).json({
-            error:
-              "Invalid link: each link needs taskId (string) and type (parent|relates|blocks)",
-          });
+          refuse(
+            res,
+            400,
+            "INVALID_LINKS",
+            "Invalid link: each link needs taskId (string) and type (parent|relates|blocks)",
+          );
           return;
         }
         if (
@@ -890,12 +948,12 @@ function registerTaskApi(
           link.type !== "relates" &&
           link.type !== "blocks"
         ) {
-          res.status(400).json({ error: `Invalid link type: ${link.type}` });
+          refuse(res, 400, "INVALID_LINKS", `Invalid link type: ${link.type}`);
           return;
         }
         // Validate self-link (always rejected, even if already present)
         if (link.type === "parent" && link.taskId === id) {
-          res.status(400).json({ error: "Cannot link a task to itself" });
+          refuse(res, 400, "INVALID_LINKS", "Cannot link a task to itself");
           return;
         }
       }
@@ -912,9 +970,13 @@ function registerTaskApi(
         for (const link of linksArr) {
           const key = `${String(link.taskId)}::${String(link.type)}`;
           if (seenIncoming.has(key)) {
-            res.status(409).json({
-              error: `Duplicate link in payload: ${String(link.type)} → ${String(link.taskId)}`,
-            });
+            refuse(
+              res,
+              409,
+              "DUPLICATE_LINK",
+              `Duplicate link in payload: ${String(link.type)} → ${String(link.taskId)}`,
+              { type: String(link.type), taskId: String(link.taskId) },
+            );
             return;
           }
           seenIncoming.add(key);
@@ -959,9 +1021,13 @@ function registerTaskApi(
             cur = parentLink.taskId;
           }
           if (isCycle) {
-            res.status(409).json({
-              error: `Cycle detected: setting parent to ${String(incomingParent.taskId)} would create a circular reference`,
-            });
+            refuse(
+              res,
+              409,
+              "LINK_CYCLE",
+              `Cycle detected: setting parent to ${String(incomingParent.taskId)} would create a circular reference`,
+              { taskId: String(incomingParent.taskId) },
+            );
             return;
           }
         }
@@ -970,7 +1036,7 @@ function registerTaskApi(
 
     const updated = updateTask(projectDir, id, updates);
     if (!updated) {
-      res.status(404).json({ error: "Task not found" });
+      refuse(res, 404, "NOT_FOUND", "Task not found");
       return;
     }
 
@@ -1033,7 +1099,7 @@ function registerTaskApi(
     const { id } = req.params;
     const filePath = findTaskFilePath(projectDir, id);
     if (!filePath) {
-      res.status(404).json({ error: "Task not found" });
+      refuse(res, 404, "NOT_FOUND", "Task not found");
       return;
     }
     markTaskOpened(projectDir, id, getCurrentUserId());
@@ -1058,7 +1124,7 @@ function registerTaskApi(
       req.body?.expanded === true,
     );
     if (!updated) {
-      res.status(404).json({ error: "Task not found" });
+      refuse(res, 404, "NOT_FOUND", "Task not found");
       return;
     }
     broadcast({
@@ -1110,7 +1176,7 @@ function registerTaskApi(
 
     const deleted = deleteTask(projectDir, id);
     if (!deleted) {
-      res.status(404).json({ error: "Task not found" });
+      refuse(res, 404, "NOT_FOUND", "Task not found");
       return;
     }
 
@@ -1136,7 +1202,7 @@ function registerTaskApi(
 
     const updated = detachParent(projectDir, id);
     if (!updated) {
-      res.status(404).json({ error: "Task not found" });
+      refuse(res, 404, "NOT_FOUND", "Task not found");
       return;
     }
 
@@ -1187,7 +1253,9 @@ function registerTaskApi(
       source?: "cli" | "web";
     };
     if (!text || !text.trim()) {
-      res.status(400).json({ error: "Missing required field: text" });
+      refuse(res, 400, "INVALID_FIELD", "Missing required field: text", {
+          field: "text",
+        });
       return;
     }
     const validAuthor = author === "agent" ? "agent" : "user";
@@ -1216,12 +1284,14 @@ function registerTaskApi(
     const { id, commentId } = req.params;
     const { text } = req.body as { text?: string };
     if (!text || !text.trim()) {
-      res.status(400).json({ error: "Missing required field: text" });
+      refuse(res, 400, "INVALID_FIELD", "Missing required field: text", {
+          field: "text",
+        });
       return;
     }
     const comment = await updateComment(projectDir, id, commentId, text.trim());
     if (!comment) {
-      res.status(404).json({ error: "Comment not found" });
+      refuse(res, 404, "NOT_FOUND", "Comment not found");
       return;
     }
     // NO notification event for an EDIT, deliberately: the activity
@@ -1238,7 +1308,7 @@ function registerTaskApi(
     const { id, commentId } = req.params;
     const ok = await deleteComment(projectDir, id, commentId);
     if (!ok) {
-      res.status(404).json({ error: "Comment not found" });
+      refuse(res, 404, "NOT_FOUND", "Comment not found");
       return;
     }
     // NO notification event for a DELETE, for the same documented reason as
@@ -1259,12 +1329,12 @@ function registerTaskApi(
   app.get("/api/tasks/:id/files/:filename", (req, res) => {
     const { id, filename } = req.params;
     if (!isValidFilename(filename)) {
-      res.status(400).json({ error: "Invalid filename" });
+      refuse(res, 400, "INVALID_NAME", "Invalid filename");
       return;
     }
     const filePath = getFilePath(projectDir, id, filename);
     if (!filePath) {
-      res.status(404).json({ error: "File not found" });
+      refuse(res, 404, "NOT_FOUND", "File not found");
       return;
     }
     // Path is derived from getFilePath() which sanitizes via basename() and
@@ -1282,18 +1352,23 @@ function registerTaskApi(
     async (req, res) => {
       const { id, filename: rawFilename } = req.params;
       if (!isValidFilename(rawFilename)) {
-        res.status(400).json({ error: "Invalid filename" });
+        refuse(res, 400, "INVALID_NAME", "Invalid filename");
         return;
       }
       // Any file type is accepted EXCEPT executables (malware-droppoint
       // precaution, same list as the web files route — ticket 6a6ed2b8).
       if (!isAllowedFileExtension(rawFilename)) {
-        res.status(415).json({ error: "Executable file type not allowed (zip it first)" });
+        refuse(
+          res,
+          415,
+          "UNSUPPORTED_FILE_TYPE",
+          "Executable file type not allowed (zip it first)",
+        );
         return;
       }
       const data = req.body as Buffer;
       if (!Buffer.isBuffer(data) || data.length === 0) {
-        res.status(400).json({ error: "Empty file body" });
+        refuse(res, 400, "INVALID_BODY", "Empty file body");
         return;
       }
       const info = saveFile(projectDir, id, rawFilename, data);
@@ -1329,12 +1404,12 @@ function registerTaskApi(
   app.delete("/api/tasks/:id/files/:filename", async (req, res) => {
     const { id, filename } = req.params;
     if (!isValidFilename(filename)) {
-      res.status(400).json({ error: "Invalid filename" });
+      refuse(res, 400, "INVALID_NAME", "Invalid filename");
       return;
     }
     const deleted = deleteFile(projectDir, id, filename);
     if (!deleted) {
-      res.status(404).json({ error: "File not found" });
+      refuse(res, 404, "NOT_FOUND", "File not found");
       return;
     }
     // Add a system trace so the activity feed records the removal.
@@ -1367,11 +1442,11 @@ function registerTaskApi(
     const { id } = req.params;
     const { screenshot } = req.body as { screenshot?: string };
     if (!findTaskFilePath(projectDir, id)) {
-      res.status(404).json({ error: "Task not found" });
+      refuse(res, 404, "NOT_FOUND", "Task not found");
       return;
     }
     if (!screenshot) {
-      res.status(400).json({ error: "Missing screenshot" });
+      refuse(res, 400, "MISSING_SCREENSHOT", "Missing screenshot");
       return;
     }
     mkdirSync(screenshotsDir, { recursive: true });
@@ -1422,7 +1497,7 @@ function registerTaskApi(
   app.delete("/api/tasks/:id/screenshot", (req, res) => {
     const { id } = req.params;
     if (!findTaskFilePath(projectDir, id)) {
-      res.status(404).json({ error: "Task not found" });
+      refuse(res, 404, "NOT_FOUND", "Task not found");
       return;
     }
     const filename = `${id}.png`;
@@ -1452,15 +1527,19 @@ function registerTaskApi(
     // Validate task exists
     const existing = findTaskFilePath(projectDir, id);
     if (!existing) {
-      res.status(404).json({ error: "Task not found" });
+      refuse(res, 404, "NOT_FOUND", "Task not found");
       return;
     }
 
     // Validate required fields
     if (!authState || !taskAuthor) {
-      res
-        .status(400)
-        .json({ error: "Missing required fields: authState, taskAuthor" });
+      refuse(
+        res,
+        400,
+        "INVALID_FIELD",
+        "Missing required fields: authState, taskAuthor",
+        { fields: ["authState", "taskAuthor"] },
+      );
       return;
     }
 
@@ -1475,7 +1554,7 @@ function registerTaskApi(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[Vibeflow] Failed to store auth state for ${id}: ${msg}`);
-      res.status(500).json({ error: "Failed to store auth state" });
+      refuse(res, 500, "INTERNAL", "Failed to store auth state");
     }
   });
 
@@ -1488,15 +1567,19 @@ function registerTaskApi(
 
     // Validate task exists
     if (!findTaskFilePath(projectDir, id)) {
-      res.status(404).json({ error: "Task not found" });
+      refuse(res, 404, "NOT_FOUND", "Task not found");
       return;
     }
 
     // Validate required fields
     if (!baseline || !baseline.selector || !baseline.outerHTML) {
-      res.status(400).json({
-        error: "Missing required fields: baseline.selector, baseline.outerHTML",
-      });
+      refuse(
+        res,
+        400,
+        "INVALID_BASELINE",
+        "Missing required fields: baseline.selector, baseline.outerHTML",
+        { fields: ["baseline.selector", "baseline.outerHTML"] },
+      );
       return;
     }
 
@@ -1519,7 +1602,7 @@ function registerTaskApi(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[Vibeflow] Failed to store baseline for ${id}: ${msg}`);
-      res.status(500).json({ error: "Failed to store baseline" });
+      refuse(res, 500, "INTERNAL", "Failed to store baseline");
     }
   });
 
@@ -1540,15 +1623,19 @@ function registerTaskApi(
 
       // Validate task exists
       if (!findTaskFilePath(projectDir, id)) {
-        res.status(404).json({ error: "Task not found" });
+        refuse(res, 404, "NOT_FOUND", "Task not found");
         return;
       }
 
       // Validate required fields
       if (!page || page.version !== 1 || !page.elements) {
-        res.status(400).json({
-          error: "Missing required fields: page.version, page.elements",
-        });
+        refuse(
+          res,
+          400,
+          "INVALID_BASELINE",
+          "Missing required fields: page.version, page.elements",
+          { fields: ["page.version", "page.elements"] },
+        );
         return;
       }
 
@@ -1596,7 +1683,7 @@ function registerTaskApi(
         console.error(
           `[Vibeflow] Failed to store page baseline for ${id}: ${msg}`,
         );
-        res.status(500).json({ error: "Failed to store page baseline" });
+        refuse(res, 500, "INTERNAL", "Failed to store page baseline");
       }
     },
   );
@@ -1646,7 +1733,7 @@ function registerMetaApis(
   app.get("/api/push/workspaces", async (_req, res) => {
     const token = (await resolveProjectAuth(projectDir)).token;
     if (!token) {
-      res.status(401).json({ error: "Not logged in" });
+      refuse(res, 401, "UNAUTHORIZED", "Not logged in");
       return;
     }
     const apiUrl = process.env.VIBEFLOW_API_URL ?? "http://localhost:3000";
@@ -1663,7 +1750,7 @@ function registerMetaApis(
         >;
         const msg = (body.error as string) ?? `HTTP ${r.status} from ${apiUrl}`;
         console.error(`[Vibeflow] GET /api/push/workspaces failed: ${msg}`);
-        res.status(r.status).json({ error: msg });
+        refuse(res, r.status, "UPSTREAM_ERROR", msg);
         return;
       }
       res.json(await r.json());
@@ -1672,9 +1759,12 @@ function registerMetaApis(
       console.error(
         `[Vibeflow] GET /api/push/workspaces network error: ${msg}`,
       );
-      res
-        .status(502)
-        .json({ error: `Network error contacting online API: ${msg}` });
+      refuse(
+        res,
+        502,
+        "UPSTREAM_UNAVAILABLE",
+        `Network error contacting online API: ${msg}`,
+      );
     }
   });
 
@@ -1686,7 +1776,7 @@ function registerMetaApis(
     };
     const token = (await resolveProjectAuth(projectDir)).token;
     if (!token) {
-      res.status(401).json({ error: "Not logged in" });
+      refuse(res, 401, "UNAUTHORIZED", "Not logged in");
       return;
     }
     const taskList = listTasksWithPaths(projectDir);
@@ -1734,9 +1824,12 @@ function registerMetaApis(
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error(`[Vibeflow] POST /api/push network error: ${msg}`);
-      res
-        .status(502)
-        .json({ error: `Network error contacting online API: ${msg}` });
+      refuse(
+        res,
+        502,
+        "UPSTREAM_UNAVAILABLE",
+        `Network error contacting online API: ${msg}`,
+      );
     }
   });
 
@@ -2126,7 +2219,7 @@ function useErrorHandler(app: express.Application): void {
         statusCode: 500,
       });
       console.error("[Vibeflow] Unhandled error:", err.message);
-      res.status(500).json({ error: "Internal server error" });
+      refuse(res, 500, "INTERNAL", "Internal server error");
     },
   );
 }
@@ -2334,10 +2427,12 @@ async function serveApiOnly(
     // Online mode: local task API is intentionally blocked. Any accidental call to /api/tasks
     // or /trpc will return 503 so problems surface immediately instead of silently writing local files.
     app.use(["/api/tasks", "/api/push", "/trpc"], (_req, res) => {
-      res.status(503).json({
-        error:
-          "Online mode active — local task API is disabled. All task operations go through the online backend.",
-      });
+      refuse(
+        res,
+        503,
+        "LOCAL_API_DISABLED",
+        "Online mode active — local task API is disabled. All task operations go through the online backend.",
+      );
     });
 
     // Serve overlay configured to post tasks to the SaaS backend (not local API).

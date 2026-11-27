@@ -204,17 +204,23 @@ describe("GET /api/notifications (e2e)", () => {
     expect(response.status).toBe(400);
     const body = (await response.json()) as {
       error: string;
-      message: string;
-      expectedFormat: string;
-      example: string;
+      code: string;
+      details: { expectedFormat: string; example: string };
     };
-    expect(body.error).toBe("INVALID_SINCE");
+    // The shared envelope (ticket 0045949e phase 1): `code` is the machine
+    // token, `error` the sentence a person reads. Pinned exactly — a stray
+    // top-level `message`/`expectedFormat` would mean the old layout leaked
+    // back and the two surfaces again answer different shapes.
+    expect(Object.keys(body).sort()).toEqual(["code", "details", "error"]);
+    expect(body.code).toBe("INVALID_SINCE");
     // The error must be actionable on its own: an agent that guessed `since`
     // wrong needs the shape and a working example, not just the code.
-    expect(body.expectedFormat).toBe("YYYY-MM-DDTHH:mm:ss.sssZ");
-    expect(body.example).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
-    expect(body.message).toContain(body.example);
-    expect(body.message).toContain("nextTs");
+    expect(body.details.expectedFormat).toBe("YYYY-MM-DDTHH:mm:ss.sssZ");
+    expect(body.details.example).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+    );
+    expect(body.error).toContain(body.details.example);
+    expect(body.error).toContain("nextTs");
   });
 
   /**
@@ -362,9 +368,16 @@ describe("GET /api/notifications (e2e)", () => {
     });
     const response = await fetch(`${instance.url}/api/notifications?wait=soon`);
     expect(response.status).toBe(400);
-    const body = (await response.json()) as { error: string; example: string };
-    expect(body.error).toBe("INVALID_WAIT");
-    expect(body.example).toContain("wait=");
+    const body = (await response.json()) as {
+      error: string;
+      code: string;
+      details: { expectedFormat: string; example: string };
+    };
+    expect(Object.keys(body).sort()).toEqual(["code", "details", "error"]);
+    expect(body.code).toBe("INVALID_WAIT");
+    expect(body.details.expectedFormat).toBe("<milliseconds, digits only>");
+    expect(body.details.example).toContain("wait=");
+    expect(body.error).toContain("milliseconds");
   });
 
   it("rejects a filter value no stored event could ever hold", async () => {
@@ -381,15 +394,17 @@ describe("GET /api/notifications (e2e)", () => {
     expect(response.status).toBe(400);
     const body = (await response.json()) as {
       error: string;
-      message: string;
-      expectedFormat: string;
-      example: string;
+      code: string;
+      details: { dimension: string; expectedFormat: string; example: string };
     };
-    // The SAME envelope shape as INVALID_SINCE on this surface (the hosted
-    // route answers `{ error, code }` — the drift is ticket 0045949e's).
-    expect(body.error).toBe("INVALID_FILTER");
-    expect(body.message).toContain("taskId");
-    expect(body.expectedFormat).toContain("taskId=");
-    expect(body.example).toContain("taskId=");
+    // The SAME envelope as INVALID_SINCE — and as the hosted route (ticket
+    // 0045949e phase 1): the dimension that failed rides in `details`, so a
+    // client branches on `code` and never parses the sentence.
+    expect(Object.keys(body).sort()).toEqual(["code", "details", "error"]);
+    expect(body.code).toBe("INVALID_FILTER");
+    expect(body.details.dimension).toBe("taskId");
+    expect(body.error).toContain("taskId");
+    expect(body.details.expectedFormat).toContain("taskId=");
+    expect(body.details.example).toContain("taskId=");
   });
 });

@@ -62,7 +62,12 @@ describe("import probe against the local test server", () => {
     // 404.
     const raw = await fetch(`${instance.url}/api/v0/tasks/import`);
     expect(raw.status).toBe(400);
-    expect(await raw.json()).toEqual({ error: "Invalid task id" });
+    // The shared refusal envelope (ticket 0045949e phase 1): the human text is
+    // unchanged, the machine code is now a field of its own.
+    expect(await raw.json()).toEqual({
+      error: "Invalid task id",
+      code: "INVALID_TASK_ID",
+    });
     const probe = await probeImportCapability(instance.url, "test-token");
     expect(probe).toEqual({ supported: false });
   });

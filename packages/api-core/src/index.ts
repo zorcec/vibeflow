@@ -5,6 +5,7 @@
  * CLI at build time, never published to npm.
  */
 export * from "./types.js";
+export * from "./api-error.js";
 export * from "./mcp-tools.js";
 export * from "./mcp-server.js";
 export * from "./normalize.js";

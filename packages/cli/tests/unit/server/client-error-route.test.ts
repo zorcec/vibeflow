@@ -102,7 +102,10 @@ describe("client-error ingress through the real server", () => {
 
     const routeRes = await throwServerRoute();
     expect(routeRes.status).toBe(500);
-    expect(await routeRes.json()).toEqual({ error: "Internal server error" });
+    expect(await routeRes.json()).toEqual({
+      error: "Internal server error",
+      code: "INTERNAL",
+    });
 
     expect(captureSpy).toHaveBeenCalledTimes(0);
   });
