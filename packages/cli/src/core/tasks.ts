@@ -31,6 +31,16 @@ import {
   type TaskChildrenIndex,
 } from "./task-children-index.js";
 import { selectClaimCandidate } from "./claim-eligibility.js";
+import { userInfo } from "node:os";
+import { resolveAgentIdentity } from "./agent-identity.js";
+import { getGitUser } from "./git-user.js";
+import {
+  acquireTaskLease,
+  renewTaskLease,
+  TaskLeaseRefusedError,
+  type LeaseClock,
+  type LeaseRefusal,
+} from "./task-lease.js";
 import { inspectLocalTaskRecord, repairUnknownRootKeys, type TaskRecordFinding, type TaskReadFinding, type LocalTaskRecordRead } from "./task-record-read.js";
 export { taskReadNotices } from "./task-record-read.js";
 import { generateSortKeyBetween } from "@vibeflow-tools/ui/kanban";
@@ -988,10 +998,37 @@ function scanChildEdges(projectDir: string): ChildEdge[] {
   return edges;
 }
 
+/**
+ * Lease request carried by a task write (ticket dh4jdeta).
+ *
+ * `claim` takes-or-renews the lease for `holder` (refuses a live foreign one);
+ * `renew` extends the lease the caller already holds and REQUIRES its fencing
+ * token — an older token is refused, which is the whole point of the fence.
+ */
+export interface TaskWriteLease {
+  mode: "claim" | "renew";
+  /** Defaults to `resolveLeaseHolder(projectDir)`; a renewal is fenced by token. */
+  holder?: string;
+  /** Carried token; mandatory for `mode: "renew"`. */
+  token?: number;
+}
+
+export interface UpdateTaskOptions {
+  /**
+   * When present the write is lease-gated: the lease is written in the SAME
+   * lock as the record (both tmp+rename), and a refusal means NOTHING is
+   * written — `TaskLeaseRefusedError` propagates to the caller.
+   */
+  lease?: TaskWriteLease;
+  /** Injected clock for deterministic lease tests. */
+  leaseClock?: LeaseClock;
+}
+
 export function updateTask(
   projectDir: string,
   taskId: string,
   updates: Partial<Omit<Task, "id" | "created">>,
+  opts: UpdateTaskOptions = {},
 ): Task | null {
   // Wrap the read-modify-write in a cross-process write lock to prevent
   // lost updates from concurrent callers (e.g. two HTTP requests).
@@ -1030,6 +1067,27 @@ export function updateTask(
     const existingPath = findTaskFilePath(projectDir, taskId);
     const task = existingPath ? readTaskFile(existingPath) : null;
     if (!task) return null;
+    // Lease gate, still inside the task lock: acquire/renew BEFORE the record
+    // write so a refusal aborts the whole update leaving the file untouched.
+    // Lease-first mirrors `claimNextTaskAtomic` (a kill between the two
+    // leaves a lease over an unchanged record, never an unfenced claim).
+    if (opts.lease) {
+      if (opts.lease.mode === "claim") {
+        acquireTaskLease(
+          projectDir,
+          taskId,
+          opts.lease.holder ?? resolveLeaseHolder(projectDir),
+          opts.leaseClock,
+        );
+      } else {
+        renewTaskLease(
+          projectDir,
+          taskId,
+          opts.lease.token ?? -1,
+          opts.leaseClock,
+        );
+      }
+    }
     const now = new Date().toISOString();
     const updated: Task = scrubResearchVerified({
       ...task,
@@ -1402,7 +1460,36 @@ export function isParentChainActive(
 }
 
 /**
+ * Who holds a lease on this machine.
+ *
+ * An agent gets its pi SESSION id (`pi-<pid>`), which is stable across every
+ * CLI invocation in that session — so a re-claim renews its own lease instead
+ * of looking foreign. A human terminal has no pi ancestor, so the git user
+ * name (the same string the task `author` carries) is the holder: the same
+ * person re-claiming renews, a different person is refused. Falls back to the
+ * OS user, then a constant, so a holder always exists.
+ */
+export function resolveLeaseHolder(projectDir: string): string {
+  const agent = resolveAgentIdentity().id;
+  if (agent) return agent;
+  const gitName = getGitUser(projectDir).name;
+  if (gitName && gitName !== "Unknown") return gitName;
+  try {
+    return userInfo().username;
+  } catch {
+    return "local-user";
+  }
+}
+
+/**
  * Export signature for the claim primitive.
+ *
+ * The claim now writes a LEASE with the status (ticket dh4jdeta): inside the
+ * claim lock, before the record write, `acquireTaskLease` either renews this
+ * holder's live lease, re-admits an expired one with a NEW fencing token, or
+ * REFUSES (`LEASE_HELD`) a live foreign one. A refusal aborts the claim and
+ * reports the holder + expiry through `onLeaseRefused` — never a warning and
+ * a write anyway.
  */
 export function claimNextTaskAtomic(
   projectDir: string,
@@ -1424,6 +1511,12 @@ export function claimNextTaskAtomic(
      * Opt in only when the caller reports the slice explicitly.
      */
     allowInactiveParentChain?: boolean;
+    /** Lease holder; defaults to `resolveLeaseHolder(projectDir)`. */
+    holder?: string;
+    /** Called with the refusal when a live foreign lease blocks the claim. */
+    onLeaseRefused?: (refusal: LeaseRefusal) => void;
+    /** Injected clock for deterministic lease tests. */
+    leaseClock?: LeaseClock;
   } = {},
 ): Task | null {
   const lock = taskLockPath(projectDir, "claim");
@@ -1472,7 +1565,26 @@ export function claimNextTaskAtomic(
       // snapshot, so a re-read that is still todo is claimable — no second
       // policy check here that could drift from the selector.
       if (reRead && reRead.status === "todo") {
-        // 5. Write the claimed task — set author ONLY when defined (never
+        // 5a. Lease FIRST, in this same critical section: a refusal must abort
+        //     before anything is written. Written first (not last) so a kill
+        //     between the two writes leaves a lease over a still-todo task —
+        //     the next claimant waits at most one TTL, instead of a claimed
+        //     task nobody is fenced out of.
+        try {
+          acquireTaskLease(
+            projectDir,
+            reRead.id,
+            opts.holder ?? resolveLeaseHolder(projectDir),
+            opts.leaseClock,
+          );
+        } catch (err) {
+          if (err instanceof TaskLeaseRefusedError) {
+            opts.onLeaseRefused?.(err.refusal);
+            return null;
+          }
+          throw err;
+        }
+        // 5b. Write the claimed task — set author ONLY when defined (never
         //    author: undefined which would overwrite through the spread).
         const now = new Date().toISOString();
         const updates: Partial<Task> = {

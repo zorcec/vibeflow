@@ -23,6 +23,7 @@ import {
   getParentId,
   isResearchType,
 } from "./core/tasks.js";
+import { TaskLeaseRefusedError } from "./core/task-lease.js";
 import { addComment } from "./core/comments.js";
 import {
   NOTIFICATIONS_WAIT_MS,
@@ -607,6 +608,12 @@ function outputEnvelope(
         json?: boolean;
         /** After-hook instructions (Stage 1, ADR-0006) — partial effects only. */
         instructions?: string[];
+        /**
+         * Machine-readable refusal context (ticket dh4jdeta: the lease holder,
+         * token and expiry a losing claimant is told). Same field the hosted
+         * v0 error carries as `error.details`.
+         */
+        details?: Record<string, unknown>;
       },
 ): void {
   if (opts.ok) {
@@ -628,6 +635,7 @@ function outputEnvelope(
         message: opts.message,
         retryable: opts.retryable ?? false,
         ...(opts.suggestion ? { suggestion: opts.suggestion } : {}),
+        ...(opts.details ? { details: opts.details } : {}),
       },
       ...(opts.instructions && opts.instructions.length > 0
         ? { instructions: opts.instructions }
@@ -1446,6 +1454,11 @@ program
     "New status: backlog | todo | in-progress | review | done (use with --edit)",
   )
   .option(
+    "--lease-token <n>",
+    "Renew the claim lease you hold; a token older than the current holder's is refused (use with --edit)",
+    (v: string) => Number(v),
+  )
+  .option(
     "--description <text>",
     "New description for the task (use with --edit)",
   )
@@ -1647,6 +1660,7 @@ program
         add?: boolean;
         title?: string;
         setStatus?: string;
+        leaseToken?: number;
         description?: string;
         setParent?: string;
         parent?: string | boolean;
@@ -6466,9 +6480,60 @@ program
             if (localEditGate.instructions.length > 0)
               localEditGateInstructions = [...localEditGate.instructions];
           }
+          // Claim LEASE (ticket dh4jdeta): the status write IS the claim, so
+          // the lease rides the SAME locked write — never a second pass. A
+          // status→in-progress write claims (or renews this holder's live
+          // lease, or re-admits an expired one with a new fencing token); an
+          // explicit --lease-token renews and carries the fence. A refused
+          // lease aborts the write entirely — nothing is persisted.
+          // The HOLDER is resolved inside the store (agent-session id, else the
+          // git/OS user): the CLI surface carries no identity of its own, and a
+          // renewal is fenced by the TOKEN, not by the name.
+          const leaseRequest =
+            opts.leaseToken !== undefined
+              ? ({ mode: "renew", token: opts.leaseToken } as const)
+              : opts.setStatus === "in-progress"
+                ? ({ mode: "claim" } as const)
+                : undefined;
           // The id was resolved above, so a miss here is only a
           // delete-between-reads race — still refused, never a guess.
-          const updated = updateTask(dir, resolvedTaskId, updates);
+          let updated: Task | null;
+          try {
+            updated = updateTask(
+              dir,
+              resolvedTaskId,
+              updates,
+              leaseRequest ? { lease: leaseRequest } : {},
+            );
+          } catch (err) {
+            if (!(err instanceof TaskLeaseRefusedError)) throw err;
+            // The LOSER is told who holds the task and when the lease ends —
+            // holder identity + expiry, the same fields the hosted surface
+            // returns (parity: `LEASE_HELD` / `LEASE_STALE`).
+            const { code, holder, token, expiresAt } = err.refusal;
+            const message =
+              code === "LEASE_HELD"
+                ? `Task is leased by ${holder} until ${expiresAt} — another agent is working on it.`
+                : `Lease token ${opts.leaseToken} is stale (current holder ${holder}, token ${token}, until ${expiresAt}) — the task was taken over.`;
+            if (opts.json) {
+              outputEnvelope({
+                ok: false,
+                code,
+                message,
+                details: { holder, token, expiresAt },
+                json: opts.json,
+              });
+            } else {
+              console.log(chalk.red(`✗ ${message}`));
+              console.log(
+                chalk.dim(
+                  `  Lease: holder ${holder}, token ${token}, expires ${expiresAt}`,
+                ),
+              );
+            }
+            process.exitCode = ExitCode.CONFLICT;
+            return;
+          }
           if (!updated) {
             if (opts.json) {
               outputEnvelope({

@@ -163,6 +163,8 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
       "update_task.parent is the one string field covering this surgical spelling — set with --set-parent, clear with --no-parent; see mcpOnlyFields.update_task.parent",
     "tasks --no-parent":
       "clearing spelling of update_task.parent (empty string clears, same as --no-parent); no input field is spelled noParent — see mcpOnlyFields.update_task.parent",
+    "tasks --lease-token":
+      "renews the claim lease a running agent already holds, carrying a per-machine fencing token that came out of that agent's own claim — there is no held lease for an MCP client to renew, and update_task's claim path mints/renews it server-side",
     "tasks --relates":
       "surgical link add; update_task declares the capability as its `links`/`addLinks` arrays (MERGE), so the schema carries it under a different field — see mcpOnlyFields.update_task.addLinks",
     "tasks --blocks":
