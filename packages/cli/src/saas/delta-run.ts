@@ -91,11 +91,26 @@ interface InventoryPage {
 }
 
 /**
+ * Page cap for one inventory read. A 500-row page means a 100k-task board is
+ * ~200 pages, so the cap only ever fires on a broken server — and then it
+ * THROWS (below) instead of returning a partial inventory.
+ */
+export const INVENTORY_MAX_PAGES = 10_000;
+
+/**
  * Read the whole inventory, following `nextCursor` until it is null.
  *
  * A page without the `deltaImport` sentinel means an old server answered a
  * prefix-matched path with a foreign body — refuse rather than treat it as an
  * empty board, which would re-send everything.
+ *
+ * Pagination is guarded the way the sibling cursor loops are (ticket
+ * nt31gdmx): a cursor that does not advance and a page that carries no rows
+ * while still asking for another page are both stalls, and a stall must fail
+ * LOUDLY. Without the guard a server stuck on one cursor cost the full page
+ * cap (~10,000 requests) and `runDeltaPush` could not tell a stalled read from
+ * an exhausted one — the plan built from that partial inventory would report
+ * "already on the board" for tasks it never saw.
  */
 export async function fetchInventory(
   apiUrl: string,
@@ -107,8 +122,9 @@ export async function fetchInventory(
   const tasks: Inventory["tasks"] = [];
   const files: Inventory["files"] = [];
   let cursor: string | null = null;
+  const seenCursors = new Set<string>();
 
-  for (let page = 0; page < 10_000; page++) {
+  for (let page = 0; page < INVENTORY_MAX_PAGES; page++) {
     const url = `${apiUrl}/api/v0/tasks/import/inventory?boardId=${encodeURIComponent(boardId)}&limit=500${
       cursor === null ? "" : `&cursor=${encodeURIComponent(cursor)}`
     }`;
@@ -123,13 +139,37 @@ export async function fetchInventory(
     if (body.deltaImport !== 1) {
       throw new Error("inventory: server does not advertise deltaImport");
     }
-    tasks.push(...(body.tasks ?? []));
-    files.push(...(body.files ?? []));
-    cursor = body.nextCursor ?? null;
-    if (cursor === null) break;
+    const pageTasks = body.tasks ?? [];
+    const pageFiles = body.files ?? [];
+    tasks.push(...pageTasks);
+    files.push(...pageFiles);
+    const next =
+      typeof body.nextCursor === "string" && body.nextCursor.length > 0
+        ? body.nextCursor
+        : null;
+    if (next === null) return { tasks, files };
+    // A cursor the server already answered is a loop, not progress — fail now
+    // rather than re-reading the same window to the cap and then reporting a
+    // truncated board as complete (same rule as the list-read loop).
+    if (next === cursor || seenCursors.has(next)) {
+      throw new Error(
+        `inventory: the server repeated the cursor "${next}" on page ${page + 1} — refusing a partial inventory rather than resolving against it`,
+      );
+    }
+    // An empty page that still asks for another page is the same stall from
+    // the other side: nothing advances the read, so no page will ever end it.
+    if (pageTasks.length === 0 && pageFiles.length === 0) {
+      throw new Error(
+        `inventory: page ${page + 1} carried no tasks and no files but returned a cursor ("${next}") — refusing a stalled pagination`,
+      );
+    }
+    seenCursors.add(next);
+    cursor = next;
   }
 
-  return { tasks, files };
+  throw new Error(
+    `inventory: hit the ${INVENTORY_MAX_PAGES}-page cap with pages remaining — refusing a partial inventory rather than resolving against it`,
+  );
 }
 
 /**

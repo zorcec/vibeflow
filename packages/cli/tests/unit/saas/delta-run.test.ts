@@ -8,6 +8,8 @@ import { hashTaskRecord } from "@vibeflow-tools/shared/delta-hash";
 import {
   DELTA_CHUNK_MAX_INPUT_BYTES,
   DELTA_CHUNK_MAX_TASKS,
+  INVENTORY_MAX_PAGES,
+  fetchInventory,
   runDeltaPush,
 } from "../../../src/saas/delta-run";
 import { chunkDeltaPlan } from "../../../src/saas/delta-archive";
@@ -186,8 +188,87 @@ describe("runDeltaPush", () => {
   });
 });
 
-describe("delta chunk sizing vs the server archive cap", () => {
-  // Guard pin: the archive route (`POST /api/v0/tasks/import/archive`)
+describe("inventory pagination stalls (ticket nt31gdmx)", () => {
+  /** A board that answers every page from `pageFor(cursor)`, counting GETs. */
+  function inventoryDouble(pageFor: (cursor: string | null) => unknown) {
+    const calls: Call[] = [];
+    const impl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, method: init?.method ?? "GET" });
+      const cursor = new URL(url).searchParams.get("cursor");
+      return new Response(JSON.stringify(pageFor(cursor)), { status: 200 });
+    }) as unknown as typeof fetch;
+    return { impl, calls };
+  }
+
+  it("fails loudly on a non-advancing cursor instead of re-reading it", async () => {
+    // The server always answers the SAME next cursor — the exact stall that
+    // used to burn the whole 10,000-page cap and then return a partial board.
+    const { impl, calls } = inventoryDouble(() => ({
+      deltaImport: 1,
+      tasks: [{ id: "t1", hash: "h1" }],
+      files: [],
+      nextCursor: "stuck",
+    }));
+
+    await expect(
+      fetchInventory(API, "tok", BOARD, HEADERS, impl),
+    ).rejects.toThrow(/repeated the cursor "stuck"/);
+    // Two pages, not the cap: page 1 asks with no cursor, page 2 with "stuck"
+    // (which answers "stuck" again and is refused).
+    expect(calls).toHaveLength(2);
+  });
+
+  it("fails loudly on an empty page that still returns a cursor", async () => {
+    const { impl, calls } = inventoryDouble(() => ({
+      deltaImport: 1,
+      tasks: [],
+      files: [],
+      nextCursor: "ghost",
+    }));
+
+    await expect(fetchInventory(API, "tok", BOARD, HEADERS, impl)).rejects.toThrow(
+      /page 1 carried no tasks and no files but returned a cursor \("ghost"\)/,
+    );
+    expect(calls).toHaveLength(1);
+  });
+
+  it("fails loudly at the page cap rather than returning a silent partial inventory", async () => {
+    // Distinct, always-new cursors: no stall guard fires, so this exercises
+    // the cap path (the last way the old loop could end without a real end).
+    const { impl, calls } = inventoryDouble((cursor) => ({
+      deltaImport: 1,
+      tasks: [],
+      files: [{ taskId: "t1", name: `${cursor ?? "first"}.png`, size: 1, hash: null }],
+      nextCursor: `${Number(cursor ?? 0) + 1}`,
+    }));
+
+    await expect(fetchInventory(API, "tok", BOARD, HEADERS, impl)).rejects.toThrow(
+      new RegExp(`hit the ${INVENTORY_MAX_PAGES}-page cap`),
+    );
+    expect(calls.length).toBe(INVENTORY_MAX_PAGES);
+  });
+
+  it("surfaces the stall as a failed push, never as a converged one", async () => {
+    const { impl } = inventoryDouble(() => ({
+      deltaImport: 1,
+      tasks: [{ id: "t1", hash: hashTaskRecord({ id: "t1", title: "a" }) }],
+      files: [],
+      nextCursor: "stuck",
+    }));
+
+    // The probe and the pages share the route; only the pages carry the cursor.
+    await expect(
+      runDeltaPush(API, "tok", BOARD, [localInput("t1", { id: "t1", title: "a" })], {
+        headers: HEADERS,
+        fetchImpl: impl,
+        emails: new Map(),
+      }),
+    ).rejects.toThrow(/refusing a partial inventory/);
+  });
+});
+
+describe("delta chunk sizing vs the server archive cap", () => {  // Guard pin: the archive route (`POST /api/v0/tasks/import/archive`)
   // refuses any request with more than V0_IMPORT_MAX_TASKS (= 100) tasks
   // with 400 BATCH_TOO_LARGE. A future bump of this constant past 100
   // must fail HERE, not as a production push of >100 changed tasks.
