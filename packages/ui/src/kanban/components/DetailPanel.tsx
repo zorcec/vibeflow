@@ -434,6 +434,16 @@ export function DetailPanel({
   const [commentCount, setCommentCount] = React.useState(0);
   const commentsLoadGen = React.useRef(0);
   const [fileCount, setFileCount] = React.useState(0);
+  /**
+   * Out-of-order guards for the two loaders that write `files`/`fileCount`
+   * (same generation pattern as `commentsLoadGen`). Switching tasks A → B
+   * before A's response lands used to paint A's file list, thumbnail and
+   * count onto B, because only the last *resolved* fetch won. Each loader
+   * increments its own counter per call and discards its writes when a
+   * newer call has started since.
+   */
+  const filesLoadGen = React.useRef(0);
+  const panelDataLoadGen = React.useRef(0);
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   /**
    * Files currently moving through paste → transform → upload → reload.
@@ -774,11 +784,13 @@ export function DetailPanel({
    * badge counts plus the files list — the same end state the old
    * badge+files double load produced, minus the duplicate files request. */
   async function loadPanelData(taskId: string) {
+    const gen = ++panelDataLoadGen.current;
     try {
       const [cd, fd] = await Promise.all([
         api.getComments(taskId),
         api.getFiles(taskId),
       ]);
+      if (panelDataLoadGen.current !== gen) return;
       setCommentCount(cd.comments?.length ?? 0);
       const next = fd.files ?? [];
       setFiles(next);
@@ -820,20 +832,23 @@ export function DetailPanel({
   }
 
   async function loadFiles(taskId: string): Promise<FileEntry[]> {
+    const gen = ++filesLoadGen.current;
     setFilesLoading(true);
     setFilesError(null);
     try {
       const data = await api.getFiles(taskId);
       const next = data.files ?? [];
-      setFiles(next);
-      setFilesLoaded(true);
-      setFileCount(next.length);
+      if (filesLoadGen.current === gen) {
+        setFiles(next);
+        setFilesLoaded(true);
+        setFileCount(next.length);
+      }
       return next;
     } catch {
-      setFilesError("failed");
+      if (filesLoadGen.current === gen) setFilesError("failed");
       return [];
     } finally {
-      setFilesLoading(false);
+      if (filesLoadGen.current === gen) setFilesLoading(false);
     }
   }
 
