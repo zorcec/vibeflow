@@ -45,6 +45,7 @@ import {
   type SubscriberCallResult,
 } from "./core/notifications-subscribers.js";
 import { resolveAgentIdentity } from "./core/agent-identity.js";
+import { createNotificationCoalescer } from "./core/notifications-coalesce.js";
 import {
   NOTIFICATIONS_DEDUPE_WINDOW,
   isCursorExpired,
@@ -8010,6 +8011,13 @@ program
  * ifhh7q2), carried on the next register/heartbeat: the badge can then name
  * what this follower last read instead of only counting it.
  *
+ * What is EMITTED is not quite what was read (ticket cgvk6mir): a burst of
+ * `task.update` events for one task is held for a short window and printed as
+ * one line, while a comment/delete/claim flushes that task's burst and is
+ * delivered at once. The rule lives in `core/notifications-coalesce.ts`, next
+ * to the classifier seam it will be replaced by; the exit paths flush, so a
+ * buffer never dies with the process.
+ *
  * The refusals are returned, not thrown: the caller owns the envelope and the
  * exit code, exactly like the one-shot read.
  */
@@ -8062,6 +8070,27 @@ async function followNotifications(
     clearInterval(orphanWatch);
   };
 
+  /**
+   * ONE coalescing buffer for this follower (ticket cgvk6mir). Events land
+   * here AFTER the own-write filter — a suppressed event is not part of a
+   * burst a reader should be told about — and the flush is the ONLY place a
+   * delivered event becomes a line (stdout, `--json`, `--exec`, activity).
+   * The window/ceiling/ordering rules live in the module, with the classifier
+   * seam it exposes; this file only says where a line goes.
+   */
+  const coalescer = createNotificationCoalescer((event) => {
+    // The last event this follower actually DELIVERED — the only activity the
+    // follower can honestly report (it reads, it does not write). With a
+    // coalesced burst that is the flush, not the arrival.
+    subscriber.activity = activityFromEvent(event);
+    const line = JSON.stringify(event);
+    // The child always receives the raw event JSON; the terminal renderer
+    // follows --json (NDJSON) or the human line.
+    child?.stdin?.write(line + "\n");
+    if (opts.json === true) process.stdout.write(line + "\n");
+    else if (child === null) console.log(renderNotificationLine(event));
+  });
+
   let stopping = false;
   // The last register/heartbeat in flight. `stop()` awaits it BEFORE the
   // unregister, so a heartbeat that raced the signal cannot land after the
@@ -8071,6 +8100,10 @@ async function followNotifications(
     if (stopping) return;
     stopping = true;
     stopHeartbeat();
+    // Before the child's stdin closes and before the unregister: a bucket
+    // still holding a burst is the follower's last unfinished business, and
+    // losing the line the user was told about is worse than a late one.
+    coalescer.flushAll();
     try {
       child?.stdin?.end();
     } catch {
@@ -8204,6 +8237,9 @@ async function followNotifications(
     message: string,
   ): Promise<{ ok: false; code: string; message: string }> => {
     stopHeartbeat();
+    // A terminal failure ends the follower just like Ctrl-C does, so the same
+    // rule holds: a buffered burst is delivered, never dropped on the floor.
+    coalescer.flushAll();
     if (pendingRegistration !== null) await pendingRegistration;
     if (registeredTarget !== null) {
       await unregisterNotificationSubscriber(
@@ -8328,15 +8364,7 @@ async function followNotifications(
       // `--json` read stays complete (a consumer may apply its own rule from
       // the event's `agent`). A peer's or a human's write never matches.
       if (isOwnNotification(event, selfAgent)) continue;
-      // The last event this follower actually delivered — the only activity
-      // the follower can honestly report (it reads, it does not write).
-      subscriber.activity = activityFromEvent(event);
-      const line = JSON.stringify(event);
-      // The child always receives the raw event JSON; the terminal renderer
-      // follows --json (NDJSON) or the human line.
-      child?.stdin?.write(line + "\n");
-      if (opts.json === true) process.stdout.write(line + "\n");
-      else if (child === null) console.log(renderNotificationLine(event));
+      coalescer.push(event);
     }
     if (result.gap) {
       console.error(
