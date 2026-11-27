@@ -1,12 +1,8 @@
 import { taskReadNotices, type TaskReadFinding } from "../core/task-record-read.js";
 import {
-  appendConfirmedNotification,
   readNotifications,
 } from "../core/notifications.js";
-import type {
-  HookActivity,
-  HookConfirmedPayloads,
-} from "../core/hooks/activities.js";
+import { notifyBoardEffect } from "./notify-board.js";
 import {
   listSubscribers,
   registerSubscriber,
@@ -279,13 +275,6 @@ function broadcastTaskUpdated(
  * agent that started the board — the exact blindness ticket kzxaq0fd warns
  * about. A board write is therefore never "self" for any follower.
  */
-function notifyBoardEffect<A extends HookActivity>(
-  projectDir: string,
-  activity: A,
-  payload: HookConfirmedPayloads[A],
-): void {
-  appendConfirmedNotification(projectDir, { activity, payload }, { actor: "board" });
-}
 
 // Injected at build time by tsup; undefined in raw TypeScript runs.
 declare const __VIBEFLOW_CLI_VERSION__: string | undefined;

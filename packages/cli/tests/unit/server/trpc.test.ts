@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { appRouter } from "../../../src/server/trpc.js";
@@ -25,6 +25,89 @@ describe("appRouter tRPC", () => {
 
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  describe("notification events (ticket hb41uxx)", () => {
+    // The suite's global setup turns the feature OFF (hermetic by default:
+    // `VIBEFLOW_EVENTS=0`), so this block must switch it on deliberately —
+    // otherwise the assertions below would pass against an empty log for the
+    // wrong reason.
+    beforeEach(() => {
+      vi.stubEnv("VIBEFLOW_EVENTS", "1");
+    });
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    /** Read the board's event log directly — the store is the contract. */
+    const readEvents = (): Array<Record<string, unknown>> => {
+      const file = join(tempDir, ".vibeflow", "notifications.jsonl");
+      if (!existsSync(file)) return [];
+      return readFileSync(file, "utf8")
+        .split("\n")
+        .filter((line) => line.trim().length > 0)
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+    };
+
+    it("a tRPC status change becomes a task.update event, like the REST route", async () => {
+      // Before the fix the tRPC mutation only broadcast `tasks-updated` over
+      // the WebSocket: the kanban changed, the feed stayed silent, so a
+      // watching agent never learned about a write made from the board.
+      const task = createTask(tempDir, {
+        title: "tRPC write",
+        description: "seeded by trpc.test.ts",
+        selector: "/",
+        type: "Task",
+        status: "todo",
+      });
+      const before = readEvents().length;
+
+      await caller.updateTask({ id: task.id, updates: { status: "in-progress" } });
+
+      const events = readEvents();
+      expect(events.length).toBe(before + 1);
+      const event = events[events.length - 1]!;
+      expect(event["type"]).toBe("task.update");
+      expect(event["taskId"]).toBe(task.id);
+      expect(event["actor"]).toBe("board");
+      expect(event["changed"]).toContain("status");
+    });
+
+    it("a bookkeeping-only patch emits NOTHING (the shared noise filter)", async () => {
+      const task = createTask(tempDir, {
+        title: "noise",
+        description: "seeded by trpc.test.ts",
+        selector: "/",
+        type: "Task",
+        status: "todo",
+      });
+      const before = readEvents().length;
+      await caller.updateTask({ id: task.id, updates: { sortKey: "zzz" } });
+      expect(readEvents().length).toBe(before);
+    });
+
+    it("a tRPC comment becomes a task.comment event carrying its id", async () => {
+      const task = createTask(tempDir, {
+        title: "commented",
+        description: "seeded by trpc.test.ts",
+        selector: "/",
+        type: "Task",
+        status: "todo",
+      });
+      const before = readEvents().length;
+      const result = await caller.addComment({
+        taskId: task.id,
+        author: "user" as const,
+        text: "hello from the board",
+      });
+      const events = readEvents();
+      expect(events.length).toBe(before + 1);
+      const event = events[events.length - 1]!;
+      expect(event["type"]).toBe("task.comment");
+      expect(
+        (event["to"] as Record<string, unknown>)["commentId"],
+      ).toBe(result.comment.id);
+    });
   });
 
   describe("project", () => {

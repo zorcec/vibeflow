@@ -23,6 +23,7 @@ import {
 import { listFiles, getFileCount } from "../core/files.js";
 import type { Task, TaskStatus } from "../core/types.js";
 import { TASK_STATUSES } from "../core/types.js";
+import { notifyBoardEffect } from "./notify-board.js";
 
 export interface TrpcContext {
   projectDir: string;
@@ -210,6 +211,14 @@ export const appRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
       }
       ctx.broadcast({ type: "tasks-updated" });
+      // Ticket hb41uxx: the REST board route already confirms this effect as a
+      // notification; without the same call here a kanban write through tRPC
+      // was invisible to a watching agent. The projection (and the noise
+      // filter that drops bookkeeping-only patches) lives in core/notifications.
+      notifyBoardEffect(ctx.projectDir, "task.update", {
+        taskId: updated.id,
+        changed: Object.keys(input.updates),
+      });
       return { success: true, task: updated };
     }),
 
@@ -250,6 +259,11 @@ export const appRouter = router({
         input.source,
       );
       ctx.broadcast({ type: "tasks-updated" });
+      // A comment is the one board write an agent is most likely waiting for.
+      notifyBoardEffect(ctx.projectDir, "task.comment", {
+        taskId: input.taskId,
+        commentId: comment.id,
+      });
       return { success: true, comment };
     }),
 
