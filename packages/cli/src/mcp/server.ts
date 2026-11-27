@@ -4,6 +4,7 @@
  * Creates an McpServer instance with all 11 tools registered.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type {
   OperationContext,
   OperationNotice,
@@ -464,6 +465,9 @@ function successPayload<T>(result: OperationResult<T>): SuccessPayload<T> {
 
 function formatResult<T>(result: OperationResult<T>): {
   content: Array<{ type: "text"; text: string }>;
+  // Field name and type come from the SDK's own CallToolResult (1.32) —
+  // a rename or removal on upgrade breaks the build here, not the wire.
+  isError?: CallToolResult["isError"];
 } {
   if (result.ok) {
     return {
@@ -476,6 +480,14 @@ function formatResult<T>(result: OperationResult<T>): {
     };
   }
   return {
+    // `isError` is the PROTOCOL-level failure flag every MCP client checks
+    // first (`CallToolResult.isError` in the SDK typings, SDK 1.32). Without
+    // it a refusal travelled as a SUCCESSFUL tool call whose text happened to
+    // say ok:false — only a client that parsed our envelope could tell. The
+    // text below is unchanged so envelope-aware clients keep reading the
+    // same shape, and this key is set here alone: the success path carries no
+    // isError at all.
+    isError: true,
     content: [
       {
         type: "text",

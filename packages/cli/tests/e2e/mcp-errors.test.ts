@@ -180,6 +180,21 @@ describe("MCP error paths", () => {
     await assertServerUsable(client);
   });
 
+  it("5b: a refusal carries the protocol isError flag over HTTP", async () => {
+    const refusal = await callTool(client, "get_task", { id: NONEXISTENT_ID });
+    expect(refusal.status).toBe(200);
+    const refused = await refusal.json();
+    // The flag an MCP client checks FIRST, before parsing any text.
+    expect(refused.result.isError).toBe(true);
+    expect(refused.result.content[0].text).toContain('"ok": false');
+
+    const success = await callTool(client, "list_tasks", { limit: 0 });
+    const succeeded = await success.json();
+    // Absent, not false: the success result is unchanged by the flag.
+    expect(succeeded.result.isError).toBeUndefined();
+    await assertServerUsable(client);
+  });
+
   it("6: update_task nonexistent id → TASK_NOT_FOUND, disk unchanged", async () => {
     const parsed = await parseEnvelope(
       await callTool(client, "update_task", { id: NONEXISTENT_ID, title: "x" }),
