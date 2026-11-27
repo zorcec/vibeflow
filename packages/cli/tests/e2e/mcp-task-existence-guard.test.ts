@@ -425,9 +425,16 @@ describe("MCP task-scoped tools resolve the task before they touch state", () =>
   it("every row refuses with its assigned code, a suggestion, and no writes", async () => {
     const offenders: string[] = [];
     for (const { label, isError, envelope, expectedCode, changes } of await sweepOnce()) {
-      if (isError) {
+      // Ticket k4hbnuew changed this contract deliberately: a refusal now
+      // sets the MCP `isError` flag, because that flag means "the tool ran and
+      // failed" — which is exactly what a refusal is — and it is the ONLY
+      // signal a client that does not parse our envelope can read. It is not
+      // a JSON-RPC protocol error: the refusal envelope still travels as the
+      // result content. What must stay true is the pair: flag SET and a usable
+      // refusal inside.
+      if (!isError) {
         offenders.push(
-          `${label}: raised a protocol-level error instead of the refusal envelope`,
+          `${label}: refused without the isError flag — a client that checks the protocol flag reads this as success`,
         );
         continue;
       }
@@ -467,7 +474,9 @@ describe("MCP task-scoped tools resolve the task before they touch state", () =>
     // the sweep reached, across tools.
     const byCode = new Map<string, Map<string, Set<string>>>();
     for (const { label, isError, envelope } of await sweepOnce()) {
-      if (isError || envelope.ok !== false) continue;
+      // A refusal is `isError: true` (ticket k4hbnuew) with the envelope in
+      // the content — skip anything that is not a refusal, either way.
+      if (!isError || envelope.ok !== false) continue;
       const code = envelope.error?.code;
       const suggestion = envelope.error?.suggestion ?? "";
       const perCode = byCode.get(code) ?? new Map<string, Set<string>>();
