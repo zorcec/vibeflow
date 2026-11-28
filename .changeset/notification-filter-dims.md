@@ -1,0 +1,5 @@
+---
+"@vibeflow-tools/cli": minor
+---
+
+The notification feed's subscription grows two dimensions and one deliberate contract change. `?actor=<name>` narrows to events written by that actor — a board write never satisfies an agent's actor — and `?taskType=<type>` narrows to tasks of that type, resolved by the board from its own task list; a read with no resolver matches NOTHING rather than widening (an event never carries its task's type). A REPEATED query param is now OR within that dimension (`?agent=a&agent=b` matches either) instead of being silently ignored as "no constraint"; across dimensions it is still AND, and a blank element still widens rather than narrows. Every element of a repeated param is validated: one bad element answers `400 INVALID_FILTER` naming the dimension and the element's position. `filteredCount` still counts every dropped event and the cursor still stays pinned behind them. The local board (`/api/notifications`) and the hosted feed (`/api/v0/notifications`) implement the same six dimensions with the same semantics, and `listTaskClaims` scopes the panel's `current` claim through the same OR rule.

@@ -29,6 +29,7 @@ import {
   readNotifications,
   type NotificationFilter,
   type NotificationReadResult,
+  type NotificationTaskTypeResolver,
   type NotificationWaitSignal,
 } from "./notifications.js";
 import { PROTO_DIR } from "./types.js";
@@ -45,6 +46,13 @@ export interface NotificationsWaitOptions {
   since?: string;
   limit?: number;
   filter?: NotificationFilter;
+  /**
+   * `taskId → type` resolver for a `taskType` filter (ticket
+   * kjiodwjxmk4j90cek02amgrj) — rides the read untouched, including across the
+   * wake-up re-read, so a held read filters exactly like the poll that
+   * follows it.
+   */
+  taskTypeOf?: NotificationTaskTypeResolver;
   /**
    * Bound to apply, in ms. Absent (undefined) = answer immediately and send no
    * `wait` field at all — that is a poll, not a wait.

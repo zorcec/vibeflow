@@ -49,10 +49,14 @@ async function fetchNotifications(
   query: {
     since?: string;
     limit?: number;
-    taskId?: string;
-    type?: string;
-    status?: string;
-    agent?: string;
+    // A dimension takes a token OR a list: a list is serialised as REPEATED
+    // params — the OR wire contract (ticket kjiodwjxmk4j90cek02amgrj).
+    taskId?: string | string[];
+    type?: string | string[];
+    status?: string | string[];
+    agent?: string | string[];
+    actor?: string | string[];
+    taskType?: string | string[];
     wait?: number;
   } = {},
 ): Promise<NotificationReadResult & { wait?: NotificationWaitSignal }> {
@@ -60,9 +64,19 @@ async function fetchNotifications(
   if (query.since !== undefined) params.set("since", query.since);
   if (query.limit !== undefined) params.set("limit", String(query.limit));
   if (query.wait !== undefined) params.set("wait", String(query.wait));
-  for (const dimension of ["taskId", "type", "status", "agent"] as const) {
+  for (const dimension of [
+    "taskId",
+    "type",
+    "status",
+    "agent",
+    "actor",
+    "taskType",
+  ] as const) {
     const value = query[dimension];
-    if (value !== undefined) params.set(dimension, value);
+    if (value === undefined) continue;
+    for (const element of typeof value === "string" ? [value] : value) {
+      params.append(dimension, element);
+    }
   }
   const suffix = params.toString() ? `?${params.toString()}` : "";
   const response = await fetch(
@@ -300,6 +314,185 @@ describe("GET /api/notifications (e2e)", () => {
     const widened = (await unknownDimension.json()) as NotificationReadResult;
     expect(widened.count).toBe(1);
     expect(widened.filteredCount).toBe(2);
+  });
+
+  it("ORs a repeated param over the wire, skips blank elements, still ANDs across dims", async () => {
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir,
+      _testToken: null,
+      _testWorkspace: null,
+    });
+
+    await runCli(["tasks", "--add", "--title", "or fixture", "--json"]);
+    const all = await fetchNotifications();
+    const created = all.notifications[0]!;
+    await runCli([
+      "tasks",
+      "--edit",
+      created.taskId,
+      "--set-status",
+      "in-progress",
+      "--comment",
+      "or me",
+      "--json",
+    ]);
+    // Three events on one task: create, update, comment.
+    const window = await fetchNotifications();
+    expect(window.count).toBe(3);
+
+    // Repeated param = OR: both named types come back, the third is dropped
+    // AND counted (the old contract silently IGNORED the repeated param).
+    const either = await fetchNotifications({
+      type: ["task.create", "task.comment"],
+    });
+    expect(either.notifications.map((e) => e.type)).toEqual([
+      "task.create",
+      "task.comment",
+    ]);
+    expect(either.count).toBe(2);
+    expect(either.filteredCount).toBe(1);
+
+    // A blank element is not a constraint: it never narrows, never 400s.
+    const blankSecond = await fetchNotifications({
+      type: ["task.comment", ""],
+    });
+    expect(blankSecond.count).toBe(1);
+    expect(blankSecond.filteredCount).toBe(2);
+
+    // OR within, AND across: (create OR comment) AND this task ⇒ 2 matches.
+    const anded = await fetchNotifications({
+      type: ["task.create", "task.comment"],
+      taskId: created.taskId,
+    });
+    expect(anded.count).toBe(2);
+    expect(anded.filteredCount).toBe(1);
+
+    // …and the AND can still make the whole page empty.
+    const never = await fetchNotifications({
+      type: ["task.create", "task.comment"],
+      taskId: "task-not-on-this-board",
+    });
+    expect(never.count).toBe(0);
+    expect(never.filteredCount).toBe(3);
+  });
+
+  it("rejects a bad element ANYWHERE in a repeated param, naming the element", async () => {
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir,
+      _testToken: null,
+      _testWorkspace: null,
+    });
+    await runCli(["tasks", "--add", "--title", "validation fixture", "--json"]);
+
+    type FilterError = {
+      error: string;
+      code: string;
+      details: {
+        dimension: string;
+        elementIndex: number;
+        expectedFormat: string;
+        example: string;
+      };
+    };
+
+    // The SECOND element is the bad one — 129 characters, one past the bound.
+    const oversizeSecond = await fetch(
+      `${instance.url}/api/notifications?type=task.comment&type=${"x".repeat(129)}`,
+    );
+    expect(oversizeSecond.status).toBe(400);
+    const oversizeBody = (await oversizeSecond.json()) as FilterError;
+    expect(oversizeBody.code).toBe("INVALID_FILTER");
+    expect(oversizeBody.details.dimension).toBe("type");
+    expect(oversizeBody.details.elementIndex).toBe(2);
+
+    // A control character in the FIRST of three is caught just as eagerly —
+    // validating only the first element (or only the last) would let 2 and 3
+    // through on a future change.
+    const controlFirst = await fetch(
+      `${instance.url}/api/notifications?type=${encodeURIComponent("a\u0000b")}&type=task.comment&type=ok`,
+    );
+    expect(controlFirst.status).toBe(400);
+    const controlBody = (await controlFirst.json()) as FilterError;
+    expect(controlBody.code).toBe("INVALID_FILTER");
+    expect(controlBody.details.elementIndex).toBe(1);
+    expect(controlBody.error).toContain("type");
+  });
+
+  it("narrows with ?actor — this run's own writes match their actor, `board` matches none", async () => {
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir,
+      _testToken: null,
+      _testWorkspace: null,
+    });
+
+    await runCli(["tasks", "--add", "--title", "actor fixture", "--json"]);
+    const all = await fetchNotifications();
+    expect(all.count).toBe(1);
+    // Whatever identity this environment resolved for the spawned CLI (the
+    // explicit $VIBEFLOW_ACTOR, else the shared "agent" label).
+    const writer = all.notifications[0]!.actor;
+
+    const byWriter = await fetchNotifications({ actor: writer });
+    expect(byWriter.count).toBe(1);
+    expect(byWriter.filteredCount).toBe(0);
+
+    // `board` is what a BOARD write carries (a click, a tRPC mutation) — this
+    // CLI run never wrote it, so the feed narrows to zero and SAYS why.
+    const byBoard = await fetchNotifications({ actor: "board" });
+    expect(byBoard.count).toBe(0);
+    expect(byBoard.filteredCount).toBe(1);
+    // Cursor pinned behind the dropped event: widening later still sees it.
+    expect(byBoard.nextTs).toBe(all.notifications[0]!.ts);
+  });
+
+  it("narrows with ?taskType through the board's own task list, counting every drop", async () => {
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir,
+      _testToken: null,
+      _testWorkspace: null,
+    });
+
+    await runCli([
+      "tasks",
+      "--add",
+      "--title",
+      "bug fixture",
+      "--type",
+      "Bug",
+      "--json",
+    ]);
+    await runCli([
+      "tasks",
+      "--add",
+      "--title",
+      "research fixture",
+      "--type",
+      "Research",
+      "--json",
+    ]);
+    const all = await fetchNotifications();
+    expect(all.count).toBe(2);
+    const bugTaskId = all.notifications[0]!.taskId;
+    const researchTaskId = all.notifications[1]!.taskId;
+    expect(researchTaskId).not.toBe(bugTaskId);
+
+    const research = await fetchNotifications({ taskType: "Research" });
+    expect(research.count).toBe(1);
+    expect(research.notifications[0]!.taskId).toBe(researchTaskId);
+    expect(research.filteredCount).toBe(1);
+    // The bug task's create is dropped, so the cursor sits behind it — a
+    // taskType read never steps over events it filtered.
+    expect(research.nextTs).toBe(all.notifications[0]!.ts);
+
+    // A type no task on this board has ⇒ zero events, honestly counted.
+    // Never widened back open behind the caller's back.
+    const nothing = await fetchNotifications({ taskType: "Waterfall" });
+    expect(nothing.count).toBe(0);
+    expect(nothing.filteredCount).toBe(2);
   });
 
 

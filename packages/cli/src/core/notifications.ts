@@ -361,18 +361,27 @@ export function appendConfirmedNotification<A extends HookActivity>(
 }
 
 /**
- * The subscription dimensions a read may narrow on (ticket p3tkodry). ONE list
- * for both backends: the local board and the hosted ring expose the same four
- * params with the same semantics (the parity goal of ticket 0045949e).
+ * The subscription dimensions a read may narrow on (ticket p3tkodry, extended
+ * by kjiodwjxmk4j90cek02amgrj). ONE list for both backends: the local board and
+ * the hosted ring expose the same six params with the same semantics (the
+ * parity goal of ticket 0045949e).
  *
  * The names are the WIRE names — the query parameter IS the dimension, so a
  * client that asks for `?status=` means the same thing everywhere.
+ *
+ * A REPEATED param is a multi-value dimension: `?agent=a&agent=b` means "a OR
+ * b". That is the deliberate contract change of kjiodwjxmk4j90cek02amgrj — a
+ * repeated param used to be silently ignored, i.e. NO constraint. OR applies
+ * WITHIN a dimension only; across dimensions every present one must match
+ * (AND), unchanged.
  */
 export const NOTIFICATION_FILTER_DIMENSIONS = [
   "taskId",
   "type",
   "status",
   "agent",
+  "actor",
+  "taskType",
 ] as const;
 
 export type NotificationFilterDimension =
@@ -380,19 +389,36 @@ export type NotificationFilterDimension =
 
 /**
  * Server-side subscription of ONE read (ticket p3tkodry). Every present
- * dimension must match (AND); an absent or empty one imposes nothing.
+ * dimension must match (AND); an absent or empty one imposes nothing. A list
+ * of values on ONE dimension is OR within it (ticket
+ * kjiodwjxmk4j90cek02amgrj) — never across dimensions.
  *
- * A dimension value is an opaque token, validated only by
- * {@link isValidNotificationFilterValue} — the four vocabularies differ in
- * shape (`abc123`, `task.comment`, `in-progress`, `pi-4242`) and a stricter
- * grammar would refuse legitimate data. A value that is WELL FORMED but names
+ * A dimension value is an opaque token (or a list of them), validated only by
+ * {@link isValidNotificationFilterValue} — the vocabularies differ in shape
+ * (`abc123`, `task.comment`, `in-progress`, `pi-4242`) and a stricter grammar
+ * would refuse legitimate data. A value that is WELL FORMED but names
  * something this backend never emits (`?type=verify` on the hosted ring)
  * narrows to zero events, explicitly: that is the documented vocabulary edge,
- * not a reason to widen behind the caller's back.
+ * not a reason to widen behind the caller's back. `taskType` is the one
+ * dimension that needs data from OUTSIDE the event and follows the same rule
+ * when the read carries no resolver — zero events, never a widen (see
+ * {@link NotificationTaskTypeResolver}).
  */
 export type NotificationFilter = Partial<
-  Record<NotificationFilterDimension, string>
+  Record<NotificationFilterDimension, string | string[]>
 >;
+
+/**
+ * `taskId → task type` for the `taskType` dimension (ticket
+ * kjiodwjxmk4j90cek02amgrj). An event never carries its task's type, so the
+ * core stays task-store-agnostic: a caller that can see tasks (a route with
+ * the loaded task list) passes a resolver; a read without one has no data to
+ * match against and that dimension therefore matches NOTHING — deliberately,
+ * since widening here would hand a filtered follower events it asked to hide.
+ */
+export type NotificationTaskTypeResolver = (
+  taskId: string,
+) => string | undefined;
 
 /** Longest accepted dimension value — ids and labels, never documents. */
 export const NOTIFICATION_FILTER_MAX_LENGTH = 128;
@@ -446,31 +472,56 @@ const FILTER_PREDICATES: {
   [D in NotificationFilterDimension]: (
     event: NotificationEvent,
     value: string,
+    taskTypeOf: NotificationTaskTypeResolver | undefined,
   ) => boolean;
 } = {
   taskId: (event, value) => event.taskId === value,
   type: (event, value) => event.type === value,
   status: (event, value) => notificationStatusOf(event) === value,
   agent: (event, value) => event.agent === value,
+  actor: (event, value) => event.actor === value,
+  // The only predicate that reads OUTSIDE the event (ticket
+  // kjiodwjxmk4j90cek02amgrj): no resolver ⇒ `undefined === value` for every
+  // event ⇒ zero matches — never a widen.
+  taskType: (event, value, taskTypeOf) => taskTypeOf?.(event.taskId) === value,
 };
 
 /**
- * Does this event pass the subscription? Absent filter, and an absent or empty
- * dimension, ⇒ true. An UNKNOWN dimension ⇒ true as well: widening is the only
- * safe answer to a dimension this backend does not implement (a newer client
- * against an older board must see MORE than it asked for, never less).
+ * Does this event pass the subscription? Absent filter, an absent dimension,
+ * and a dimension whose values are ALL blank ⇒ true (a blank element is not a
+ * constraint — a fat-fingered blank widens instead of hiding the feed). An
+ * UNKNOWN dimension ⇒ true as well: widening is the only safe answer to a
+ * dimension this backend does not implement (a newer client against an older
+ * board must see MORE than it asked for, never less).
+ *
+ * Multi-value (ticket kjiodwjxmk4j90cek02amgrj): a list on ONE dimension is
+ * OR — `["a", "b"]` matches an event naming `a` OR `b`. There is no OR across
+ * dimensions: every present dimension must still match (AND).
  */
 export function matchesNotificationFilter(
   event: NotificationEvent,
   filter: NotificationFilter | undefined,
+  taskTypeOf?: NotificationTaskTypeResolver,
 ): boolean {
   if (filter === undefined) return true;
-  for (const [dimension, value] of Object.entries(filter)) {
-    if (value === undefined || value.trim() === "") continue;
+  for (const [dimension, raw] of Object.entries(filter)) {
+    if (raw === undefined) continue;
     const predicate =
       FILTER_PREDICATES[dimension as NotificationFilterDimension];
     if (predicate === undefined) continue;
-    if (!predicate(event, value)) return false;
+    const values = typeof raw === "string" ? [raw] : raw;
+    let considered = false;
+    let satisfied = false;
+    for (const value of values) {
+      if (typeof value !== "string" || value.trim() === "") continue;
+      considered = true;
+      if (predicate(event, value, taskTypeOf)) satisfied = true;
+    }
+    // An all-blank list imposes nothing — the same widening rule a single
+    // blank value has always had (a repeated param must never NARROW by
+    // accident).
+    if (!considered) continue;
+    if (!satisfied) return false;
   }
   return true;
 }
@@ -692,14 +743,21 @@ function resolveLimit(limit: number | undefined): number {
  * - `filter` (ticket p3tkodry) narrows the page SERVER-SIDE: only events that
  *   pass {@link matchesNotificationFilter} are returned, `filteredCount` says
  *   how many the subscription dropped, and `nextTs` stays behind the rest (see
- *   its own doc).
+ *   its own doc). A `taskType` dimension resolves through the optional
+ *   `taskTypeOf` — no resolver means it matches nothing, never everything.
  * - `limit` keeps the NEWEST `limit` matches; `truncated` says more matched.
  * - `gap` warns that `since` predates what is still stored, i.e. events the
  *   caller never saw were evicted and it must re-read instead of paging.
  */
 export function readNotifications(
   projectDir: string,
-  opts: { since?: string; limit?: number; filter?: NotificationFilter } = {},
+  opts: {
+    since?: string;
+    limit?: number;
+    filter?: NotificationFilter;
+    /** `taskId → type` resolver for a `taskType` filter (see {@link NotificationTaskTypeResolver}). */
+    taskTypeOf?: NotificationTaskTypeResolver;
+  } = {},
 ): NotificationReadResult {
   const stored = readStoredEvents(projectDir);
   const earliestTs = stored.length > 0 ? stored[0]!.ts : null;
@@ -711,9 +769,9 @@ export function readNotifications(
   const matched: NotificationEvent[] = [];
   const dropped: NotificationEvent[] = [];
   for (const event of window) {
-    (matchesNotificationFilter(event, opts.filter) ? matched : dropped).push(
-      event,
-    );
+    (matchesNotificationFilter(event, opts.filter, opts.taskTypeOf)
+      ? matched
+      : dropped).push(event);
   }
   const limit = resolveLimit(opts.limit);
   const truncated = matched.length > limit;

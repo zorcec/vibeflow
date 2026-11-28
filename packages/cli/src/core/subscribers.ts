@@ -196,22 +196,29 @@ function purge(boardId: string, now: number): Map<string, SubscriberEntry> | nul
  *
  * Expired claims are DROPPED, never returned with an age the caller could
  * render as a stale "working on" line — the same rule `purge` applies to the
- * followers themselves. `taskId` narrows to one task (the DetailPanel's read),
- * applied after the TTL check so a narrow read cannot resurrect a claim the
- * wide read already reports as gone.
+ * followers themselves. `taskId` narrows to the named task(s) (the DetailPanel's
+ * read, and the feed route's `?taskId=`, where a repeated param is OR — ticket
+ * kjiodwjxmk4j90cek02amgrj), applied after the TTL check so a narrow read
+ * cannot resurrect a claim the wide read already reports as gone.
  */
 export function listTaskClaims(
   boardId: string,
   now: number = Date.now(),
-  taskId?: string,
+  taskId?: string | string[],
 ): TaskClaim[] {
   const registry = purge(boardId, now);
+  const wanted =
+    taskId === undefined
+      ? undefined
+      : typeof taskId === "string"
+        ? [taskId]
+        : taskId;
   const newest = new Map<string, TaskClaim>();
   for (const entry of registry?.values() ?? []) {
     const claim = entry.current;
     if (claim === undefined) continue;
     if (now - claim.at >= TASK_CLAIM_TTL_MS) continue;
-    if (taskId !== undefined && claim.taskId !== taskId) continue;
+    if (wanted !== undefined && !wanted.includes(claim.taskId)) continue;
     const previous = newest.get(claim.taskId);
     if (previous === undefined || claim.at > previous.at) {
       newest.set(claim.taskId, claim);

@@ -967,6 +967,107 @@ describe("readNotifications — subscription filters", () => {
     expect(read.filteredCount).toBe(2);
   });
 
+  it("matches `actor` only on events it names — a board write never satisfies ?actor=<agent>", () => {
+    appendNotification(
+      projectDir,
+      event({ ts: "2026-01-01T00:00:00.000Z", type: "task.create", actor: "pi-a" }),
+    );
+    appendNotification(
+      projectDir,
+      event({ ts: "2026-01-01T00:00:10.000Z", type: "task.update", actor: "board" }),
+    );
+
+    const byAgent = readNotifications(projectDir, { filter: { actor: "pi-a" } });
+    expect(byAgent.count).toBe(1);
+    expect(byAgent.notifications[0]!.actor).toBe("pi-a");
+    // The board's own write is DROPPED and counted — filtered out, not hidden.
+    expect(byAgent.filteredCount).toBe(1);
+
+    const byBoard = readNotifications(projectDir, { filter: { actor: "board" } });
+    expect(byBoard.count).toBe(1);
+    expect(byBoard.notifications[0]!.actor).toBe("board");
+  });
+
+  it("`taskType` with no resolver matches NOTHING (never widens)", () => {
+    seedBoard();
+
+    const read = readNotifications(projectDir, {
+      filter: { taskType: "Research" },
+    });
+    expect(read.count).toBe(0);
+    // Every event in the window is dropped and COUNTED: no resolver means no
+    // data to match, so the honest answer is "zero", never "everything".
+    expect(read.filteredCount).toBe(3);
+    // The cursor stays behind the oldest dropped event, exactly as for any
+    // other filter — a later read with a resolver still reaches them.
+    expect(read.nextTs).toBe("2026-01-01T00:00:00.000Z");
+  });
+
+  it("`taskType` resolves through the optional resolver, OR'ed over values", () => {
+    seedBoard();
+    const taskTypeOf = (taskId: string) =>
+      taskId === "task-a" ? "Research" : "Bug";
+
+    const narrowed = readNotifications(projectDir, {
+      filter: { taskType: "Research" },
+      taskTypeOf,
+    });
+    expect(narrowed.notifications.map((e) => e.taskId)).toEqual([
+      "task-a",
+      "task-a",
+    ]);
+    expect(narrowed.filteredCount).toBe(1);
+
+    const either = readNotifications(projectDir, {
+      filter: { taskType: ["Research", "Bug"] },
+      taskTypeOf,
+    });
+    expect(either.count).toBe(3);
+    expect(either.filteredCount).toBe(0);
+  });
+
+  it("ORs multiple values WITHIN one dimension and still ANDs across them", () => {
+    seedBoard();
+
+    const either = readNotifications(projectDir, {
+      filter: { taskId: ["task-a", "task-b"] },
+    });
+    expect(either.count).toBe(3);
+    expect(either.filteredCount).toBe(0);
+
+    const oneOfTwo = readNotifications(projectDir, {
+      filter: { taskId: ["task-a", "task-zzz"] },
+    });
+    expect(oneOfTwo.notifications.map((e) => e.taskId)).toEqual([
+      "task-a",
+      "task-a",
+    ]);
+    expect(oneOfTwo.filteredCount).toBe(1);
+
+    // OR inside the dimension, AND across: (task-a OR task-b) AND task.comment.
+    const both = readNotifications(projectDir, {
+      filter: { taskId: ["task-a", "task-b"], type: "task.comment" },
+    });
+    expect(both.count).toBe(1);
+    expect(both.filteredCount).toBe(2);
+  });
+
+  it("a blank element in a list is not a constraint; an all-blank list widens", () => {
+    seedBoard();
+
+    const blankSkipped = readNotifications(projectDir, {
+      filter: { taskId: ["", "task-a"] },
+    });
+    expect(blankSkipped.count).toBe(2);
+    expect(blankSkipped.filteredCount).toBe(1);
+
+    const allBlank = readNotifications(projectDir, {
+      filter: { taskId: ["  ", ""] },
+    });
+    expect(allBlank.count).toBe(3);
+    expect(allBlank.filteredCount).toBe(0);
+  });
+
   it("WIDENS on a dimension this store does not know", () => {
     seedBoard();
 

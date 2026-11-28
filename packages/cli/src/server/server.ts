@@ -4,6 +4,7 @@ import {
   NOTIFICATION_FILTER_DIMENSIONS,
   NOTIFICATION_FILTER_MAX_LENGTH,
   type NotificationFilter,
+  type NotificationTaskTypeResolver,
 } from "../core/notifications.js";
 import { readNotificationsWithWait } from "../core/notifications-wait.js";
 import { notifyBoardEffect } from "./notify-board.js";
@@ -496,15 +497,21 @@ function registerTaskApi(
   // `limit` (the NEWEST win). Same no-auth local rule as every other /api route
   // here; CORS is the app-wide middleware.
   //
-  // Subscription dimensions (ticket p3tkodry): `?taskId=&type=&status=&agent=`
+  // Subscription dimensions (ticket p3tkodry, extended
+  // kjiodwjxmk4j90cek02amgrj): `?taskId=&type=&status=&agent=&actor=&taskType=`
   // narrow the page SERVER-SIDE so a follower is not handed events it will
-  // discard, and `filteredCount` tells it how many were dropped. Two rules,
+  // discard, and `filteredCount` tells it how many were dropped. Three rules,
   // spelled the same on the hosted route (`api/v0/notifications`):
   // - an UNKNOWN dimension is not a constraint and never an error — a newer
   //   client against an older board sees MORE than it asked for, never less;
   // - an INVALID VALUE for a known dimension is 400 INVALID_FILTER, in the
   //   same envelope shape as INVALID_SINCE below (the hosted route answers
-  //   `{ error, code }` instead — the envelope drift is ticket 0045949e's).
+  //   `{ error, code }` instead — the envelope drift is ticket 0045949e's);
+  // - a REPEATED param is OR WITHIN that dimension — the deliberate contract
+  //   change of kjiodwjxmk4j90cek02amgrj: it used to be silently ignored,
+  //   i.e. no constraint at all. EVERY element is validated (one bad element
+  //   400s and the refusal names it), a blank element still means no
+  //   constraint, and across dimensions it is still AND.
   //
   // Long-poll (ticket olkwa34zghp22owchuhzaaba): `?wait=<ms>` holds the request
   // open until the log is appended to or the bound expires, so a follower is
@@ -541,26 +548,64 @@ function registerTaskApi(
     for (const dimension of NOTIFICATION_FILTER_DIMENSIONS) {
       const raw = req.query[dimension];
       if (raw === undefined) continue;
-      // A repeated param is `string[]`: ambiguous, so it is not a constraint.
-      if (typeof raw !== "string") continue;
-      // Empty / blank ⇒ "no constraint" (widens), like an omitted one.
-      if (raw.trim() === "") continue;
-      if (!isValidNotificationFilterValue(raw)) {
-        refuse(
-          res,
-          400,
-          "INVALID_FILTER",
-          `\`${dimension}\` must be one token of at most ${NOTIFICATION_FILTER_MAX_LENGTH} characters with no control characters. Omit it to widen the feed.`,
-          {
-            dimension,
-            expectedFormat: `${dimension}=<one token, no control characters>`,
-            example: `${dimension}=${dimension === "status" ? "in-progress" : dimension === "type" ? "task.comment" : "abc123"}`,
-          },
-        );
-        return;
+      // A repeated param arrives as `string[]` — OR within the dimension
+      // (contract change, see above), so EVERY element matters below.
+      const elements: unknown[] =
+        typeof raw === "string" ? [raw] : Array.isArray(raw) ? raw : [raw];
+      const values: string[] = [];
+      for (let index = 0; index < elements.length; index += 1) {
+        const element = elements[index];
+        // Empty / blank element ⇒ "no constraint" (widens), like an omitted
+        // one — a fat-fingered blank must never NARROW the feed.
+        if (typeof element === "string" && element.trim() === "") continue;
+        if (
+          typeof element !== "string" ||
+          !isValidNotificationFilterValue(element)
+        ) {
+          // Non-string query garbage (`?type[a]=b`) is an invalid element too:
+          // it must never silently widen (or narrow) the dimension.
+          const detail =
+            typeof element === "string"
+              ? `${element.length} characters`
+              : "not a single token";
+          refuse(
+            res,
+            400,
+            "INVALID_FILTER",
+            `\`${dimension}\` element ${index + 1} (${detail}) must be one token of at most ${NOTIFICATION_FILTER_MAX_LENGTH} characters with no control characters. Omit the dimension to widen the feed.`,
+            {
+              dimension,
+              // 1-based: humans count elements from 1. The raw element is
+              // never echoed — it may hold the control chars it failed on.
+              elementIndex: index + 1,
+              expectedFormat: `${dimension}=<one token, no control characters>`,
+              example: `${dimension}=${dimension === "status" ? "in-progress" : dimension === "type" ? "task.comment" : "abc123"}`,
+            },
+          );
+          return;
+        }
+        values.push(element);
       }
-      filter[dimension] = raw;
+      // All-blank ⇒ the dimension imposes nothing (same widening rule as an
+      // omitted param); otherwise OR runs over the surviving values.
+      if (values.length === 0) continue;
+      filter[dimension] = values;
     }
+    // `taskType` is the one dimension whose predicate needs the task store
+    // (ticket kjiodwjxmk4j90cek02amgrj): resolve it from this board's own
+    // task list, read ONLY when the dimension is present. A task this list
+    // does not know resolves to no type and therefore matches nothing —
+    // never widen behind a filter that asked to narrow.
+    const taskTypeOf = ((): NotificationTaskTypeResolver | undefined => {
+      if (filter.taskType === undefined) return undefined;
+      const typeByTaskId = new Map<string, string>();
+      for (const task of listTasks(projectDir)) {
+        if (typeof task.type === "string" && task.type !== "") {
+          typeByTaskId.set(task.id, task.type);
+        }
+      }
+      return (taskId) => typeByTaskId.get(taskId);
+    })();
     const waitParam = req.query.wait;
     if (waitParam !== undefined) {
       // Milliseconds, digits only: a negative or fractional bound would make
@@ -588,6 +633,7 @@ function registerTaskApi(
       ...(typeof sinceParam === "string" ? { since: sinceParam } : {}),
       ...(limit !== undefined && !Number.isNaN(limit) ? { limit } : {}),
       ...(Object.keys(filter).length > 0 ? { filter } : {}),
+      ...(taskTypeOf !== undefined ? { taskTypeOf } : {}),
       ...(typeof waitParam === "string"
         ? { waitMs: Number.parseInt(waitParam.trim(), 10) }
         : {}),
