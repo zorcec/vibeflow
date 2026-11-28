@@ -46,7 +46,7 @@ import {
   type FetchTransport,
   type NotificationTarget,
 } from "./notifications-fetch.js";
-import type { TaskClaim } from "./subscribers.js";
+import type { SubscriberStatus, TaskClaim } from "./subscribers.js";
 
 /** The follower's re-registration cadence — the registry owns the number. */
 export { SUBSCRIBER_HEARTBEAT_MS } from "./subscribers.js";
@@ -291,6 +291,130 @@ export async function registerNotificationSubscriber(
       ok: false,
       message: `Subscriber registration failed: ${describeFailure(err)}`,
     };
+  }
+}
+
+/** One live row as `GET .../subscribers` lists it — what `agents status` reads. */
+export interface NotificationSubscriberRow {
+  subscriberId: string;
+  agent: string;
+}
+
+/**
+ * Read the live roster — the `agents status` pre-check that keeps the command
+ * from posting into the void (ticket w7knq2anvb14axzpea5k7qwv): with no row
+ * for the follower's own subscriberId the command refuses E_USAGE (exit 2)
+ * BEFORE any POST. The server's 409 NO_LIVE_AGENT stays the authority; this is
+ * only the friendly early refusal.
+ */
+export async function fetchNotificationSubscribers(
+  projectDir: string,
+  target: NotificationTarget,
+  opts: SubscriberCallOptions = {},
+): Promise<
+  | { ok: true; subscribers: NotificationSubscriberRow[] }
+  | { ok: false; message: string }
+> {
+  let headers: Record<string, string> = {};
+  if (target === "online") {
+    const online = await onlineHeaders(projectDir);
+    if (!online) {
+      return { ok: false, message: "No board credential for this project." };
+    }
+    headers = online;
+  }
+  const url = subscribersUrl(projectDir, target);
+  try {
+    const res = opts.fetchImpl
+      ? await opts.fetchImpl(url, { method: "GET", headers })
+      : // pi-lens-ignore: ts-ssrf — url is getApiUrl()/localhost + a constant path
+        await fetchWithTimeout(
+          url,
+          { method: "GET", headers },
+          {
+            phase: "GET (notifications subscribers)",
+            timeoutMs: opts.timeoutMs ?? SUBSCRIBER_REQUEST_TIMEOUT_MS,
+          },
+        );
+    if (!res.ok) {
+      return {
+        ok: false,
+        message: `Subscriber roster read failed: HTTP ${res.status}`,
+      };
+    }
+    const body = (await res.json()) as { subscribers?: unknown };
+    const subscribers: NotificationSubscriberRow[] = [];
+    if (Array.isArray(body.subscribers)) {
+      for (const raw of body.subscribers) {
+        const row = raw as Record<string, unknown>;
+        if (typeof row?.subscriberId === "string" && typeof row.agent === "string") {
+          subscribers.push({ subscriberId: row.subscriberId, agent: row.agent });
+        }
+      }
+    }
+    return { ok: true, subscribers };
+  } catch (err) {
+    return {
+      ok: false,
+      message: `Subscriber roster read failed: ${describeFailure(err)}`,
+    };
+  }
+}
+
+/**
+ * One status-only update from `vibeflow agents status`
+ * (ticket w7knq2anvb14axzpea5k7qwv). The `status` key marks the body: the
+ * server applies it WITHOUT refreshing `lastSeenAt` (a one-shot command must
+ * not resurrect a dead follower) and answers 409 NO_LIVE_AGENT when the row
+ * is gone — that 409 is the authority; the caller's E_USAGE is only the
+ * pre-check. Activity/current ride the same route untouched, so the body is
+ * exactly `{ subscriberId, status }` — no read-modify-write race with the
+ * follower's own heartbeat.
+ */
+export async function postSubscriberStatus(
+  projectDir: string,
+  target: NotificationTarget,
+  subscriberId: string,
+  status: SubscriberStatus | null,
+  opts: SubscriberCallOptions = {},
+): Promise<{ ok: true } | { ok: false; code?: string; message: string }> {
+  let headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (target === "online") {
+    const online = await onlineHeaders(projectDir);
+    if (!online) {
+      return { ok: false, message: "No board credential for this project." };
+    }
+    headers = { ...online, "Content-Type": "application/json" };
+  }
+  const url = subscribersUrl(projectDir, target);
+  const init: RequestInit = {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ subscriberId, status }),
+  };
+  try {
+    const res = opts.fetchImpl
+      ? await opts.fetchImpl(url, init)
+      : // pi-lens-ignore: ts-ssrf — url is getApiUrl()/localhost + a constant path
+        await fetchWithTimeout(url, init, {
+          phase: "POST (notifications subscriber status)",
+          timeoutMs: opts.timeoutMs ?? SUBSCRIBER_REQUEST_TIMEOUT_MS,
+        });
+    if (!res.ok) {
+      const parsed = (await res.json().catch(() => null)) as {
+        code?: unknown;
+        error?: unknown;
+      } | null;
+      const code = typeof parsed?.code === "string" ? parsed.code : undefined;
+      const message =
+        typeof parsed?.error === "string"
+          ? parsed.error
+          : `Status update failed: HTTP ${res.status}`;
+      return { ok: false, ...(code !== undefined ? { code } : {}), message };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: `Status update failed: ${describeFailure(err)}` };
   }
 }
 

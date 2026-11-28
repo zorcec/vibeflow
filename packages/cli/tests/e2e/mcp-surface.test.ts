@@ -27,6 +27,10 @@ import type { Command } from "commander";
 import { runCli } from "./mcp-helpers.js";
 
 const COMMANDS = [
+  // Agent-facing Watching-roster helper (w7knq2anvb14axzpea5k7qwv): its one
+  // command writes this agent's own status onto its live follower's row —
+  // CLI-only, never an MCP tool (see intentionallyNotExposed.commands).
+  "agents",
   "auth",
   // Local-only enrichment (writes the git-tracked task store); deliberately
   // not an MCP tool, so it appears here but never in the tool surface.

@@ -10,9 +10,12 @@ import { notifyBoardEffect } from "./notify-board.js";
 import {
   listSubscribers,
   listTaskClaims,
+  MAX_SUBSCRIBER_STATUS_LENGTH,
   registerSubscriber,
   removeSubscriber,
+  updateSubscriberStatus,
   type SubscriberActivity,
+  type SubscriberStatus,
   type TaskClaim,
 } from "../core/subscribers.js";
 import { assertRemovableTag, removeTagFromAllTasks } from "../core/remove-tag.js";
@@ -437,6 +440,27 @@ function parseSubscriberClaim(raw: unknown): TaskClaim | undefined {
   return { taskId, agent, at: c.at };
 }
 
+/**
+ * The optional free-text status a `vibeflow agents status` update sends
+ * (ticket w7knq2anvb14axzpea5k7qwv). Best-effort like the other parsers:
+ * non-object, empty text or an `at` that is not a positive finite number ⇒
+ * undefined and the UPDATE is dropped, never a 400 that would fail the
+ * command. Text is truncated to MAX_SUBSCRIBER_STATUS_LENGTH (the badge's one
+ * ellipsised line), never rejected — mirrors the hosted v0 route, 1:1.
+ */
+function parseSubscriberStatus(raw: unknown): SubscriberStatus | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  const s = raw as Record<string, unknown>;
+  const text = typeof s.text === "string" ? s.text.trim() : "";
+  if (text === "") return undefined;
+  if (typeof s.at !== "number" || !Number.isFinite(s.at) || s.at <= 0) {
+    return undefined;
+  }
+  return { text: text.slice(0, MAX_SUBSCRIBER_STATUS_LENGTH), at: s.at };
+}
+
 /** Registers all /api/tasks routes on the given Express app. */
 function registerTaskApi(
   app: express.Application,
@@ -607,6 +631,29 @@ function registerTaskApi(
         "INVALID_SUBSCRIBER",
         "subscriberId must be a single non-empty token (max 128 characters)",
       );
+      return;
+    }
+    // `vibeflow agents status` (ticket w7knq2anvb14axzpea5k7qwv): the
+    // `status` KEY marks a status-only update — `null` clears, an object
+    // replaces, a malformed value is dropped (best-effort like activity and
+    // claim, never a 400). It never refreshes `lastSeenAt`: a one-shot command
+    // must not resurrect a dead follower, so an absent/expired row is
+    // 409 NO_LIVE_AGENT and nothing is written. Activity/current are left
+    // alone, so the caller sends only { subscriberId, status } — no
+    // read-modify-write race with the follower's own heartbeat.
+    if ("status" in body) {
+      const status =
+        body.status === null ? null : parseSubscriberStatus(body.status);
+      if (!updateSubscriberStatus(projectDir, subscriberId, status)) {
+        refuse(
+          res,
+          409,
+          "NO_LIVE_AGENT",
+          "no live follower with that subscriberId — start `vibeflow notifications --follow` first",
+        );
+        return;
+      }
+      res.json({ subscriberId, total: listSubscribers(projectDir).total });
       return;
     }
     const rawAgent = typeof body.agent === "string" ? body.agent.trim() : "";

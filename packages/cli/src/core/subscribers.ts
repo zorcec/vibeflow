@@ -28,6 +28,10 @@
  * - `current` is the follower's "working on" CLAIM (ticket qxvptxkta): the
  *   task its agent was last seen taking up, with the delivery time as the TTL
  *   clock — see {@link TASK_CLAIM_TTL_MS}.
+ * - `status` is the follower's free-text self report (ticket w7knq2anvb14axzpea5k7qwv):
+ *   the one-shot `vibeflow agents status` command writes it, a heartbeat that
+ *   omits it PRESERVES it (unlike activity/current), `null` clears it, and it
+ *   dies with the row — a status can never outlive the process it describes.
  *
  * ## Why the claim lives HERE and not on the task
  *
@@ -88,6 +92,26 @@ export interface SubscriberActivity {
   at: number;
 }
 
+/**
+ * Longest status text kept from `vibeflow agents status`: 140 chars after
+ * trim (ticket w7knq2anvb14axzpea5k7qwv). It fits the badge's one ellipsised
+ * line (mock #2) without widening the popover; longer text is TRUNCATED, never
+ * rejected, so a status ping is never lost to a length mistake.
+ */
+export const MAX_SUBSCRIBER_STATUS_LENGTH = 140;
+
+/**
+ * A follower's free-text self report, set by `vibeflow agents status`. Stored
+ * on the same in-memory row as the identity — never on the task record — so it
+ * dies with the follower at the heartbeat TTL (ticket w7knq2anvb14axzpea5k7qwv).
+ */
+export interface SubscriberStatus {
+  /** The trimmed report, at most {@link MAX_SUBSCRIBER_STATUS_LENGTH} chars. */
+  text: string;
+  /** When the status was SET (epoch ms). A heartbeat never refreshes it. */
+  at: number;
+}
+
 export interface SubscriberIdentity {
   /** Random per follower process (`sub_…`); the unsubscribe key. */
   subscriberId: string;
@@ -97,6 +121,8 @@ export interface SubscriberIdentity {
   user: string;
   /** Last delivered event; absent until the follower has delivered one. */
   activity?: SubscriberActivity;
+  /** The agent's own status report; absent when it never set one. */
+  status?: SubscriberStatus;
   /** The task this follower's agent is working on; absent when it claimed none. */
   current?: TaskClaim;
 }
@@ -112,6 +138,7 @@ interface SubscriberSnapshotEntry {
   lastSeenAt: number;
   activity?: SubscriberActivity;
   current?: TaskClaim;
+  status?: SubscriberStatus;
 }
 
 /** What the badge consumes: live followers plus the legacy aggregates. */
@@ -205,10 +232,40 @@ export function registerSubscriber(
   const previous = registry.get(identity.subscriberId);
   registry.set(identity.subscriberId, {
     ...identity,
+    // `status` is preserved when a heartbeat omits it — unlike activity and
+    // current, which clear on absence. Its writer is the one-shot
+    // `agents status` command, so an absent field must not wipe what it set;
+    // only updateSubscriberStatus(..., null) clears (ticket w7knq2anvb14axzpea5k7qwv).
+    ...(identity.status === undefined && previous?.status !== undefined
+      ? { status: previous.status }
+      : {}),
     registeredAt: previous?.registeredAt ?? now,
     lastSeenAt: now,
   });
   registries.set(boardId, registry);
+}
+
+/**
+ * Apply a status-only update from `vibeflow agents status`
+ * (ticket w7knq2anvb14axzpea5k7qwv). `null` clears, a value replaces,
+ * `undefined` drops a malformed update (the route still requires a live row
+ * but writes nothing). Deliberately does NOT touch `lastSeenAt`: a one-shot
+ * command must not resurrect a dead follower's row — liveness is the
+ * FOLLOWER's heartbeat alone. Returns false when no live row exists, so the
+ * route can refuse NO_LIVE_AGENT and write nothing.
+ */
+export function updateSubscriberStatus(
+  boardId: string,
+  subscriberId: string,
+  status: SubscriberStatus | null | undefined,
+  now: number = Date.now(),
+): boolean {
+  const registry = purge(boardId, now);
+  const entry = registry?.get(subscriberId);
+  if (entry === undefined) return false;
+  if (status === null) delete entry.status;
+  else if (status !== undefined) entry.status = status;
+  return true;
 }
 
 /** Remove a follower. Idempotent: an unknown/expired id is `false`. */
@@ -251,6 +308,7 @@ export function listSubscribers(
       lastSeenAt: entry.lastSeenAt,
       ...(entry.activity !== undefined ? { activity: entry.activity } : {}),
       ...(entry.current !== undefined ? { current: entry.current } : {}),
+      ...(entry.status !== undefined ? { status: entry.status } : {}),
     });
   }
   subscribers.sort(

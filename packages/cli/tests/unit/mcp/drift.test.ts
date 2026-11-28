@@ -258,6 +258,10 @@ describe("MCP drift test", () => {
     const program = createProgram();
     const names = program.commands.map((c) => c.name()).sort();
     expect(names).toEqual([
+      // Agent-facing Watching-roster helper (w7knq2anvb14axzpea5k7qwv): its
+      // one command writes this agent's own status onto its live follower's
+      // row — classified in intentionallyNotExposed.commands.
+      "agents",
       "auth",
       // Local-only enrichment (git author emails). Deliberately NOT an MCP
       // tool: it writes the git-tracked task store, which must stay a

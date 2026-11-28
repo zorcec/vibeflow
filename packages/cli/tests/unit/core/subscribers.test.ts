@@ -22,6 +22,7 @@ import {
   listTaskClaims,
   registerSubscriber,
   removeSubscriber,
+  updateSubscriberStatus,
 } from "../../../src/core/subscribers.js";
 
 const BOARD = "/tmp/watch-project-a";
@@ -293,5 +294,107 @@ describe("the 'working on' claim", () => {
       subscriberId: "sub_a",
       current: claim("task-a", T0),
     });
+  });
+});
+
+describe("the agent status field (ticket w7knq2anvb14axzpea5k7qwv)", () => {
+  it("is set, replaced on re-register, and PRESERVED when a heartbeat omits it", () => {
+    registerSubscriber(
+      BOARD,
+      { ...sub("sub_a"), status: { text: "writing the fix", at: T0 + 10 } },
+      T0,
+    );
+    expect(listSubscribers(BOARD, T0).subscribers[0]?.status).toEqual({
+      text: "writing the fix",
+      at: T0 + 10,
+    });
+
+    // Replace-on-reregister: a newer `agents status` wins outright.
+    registerSubscriber(
+      BOARD,
+      { ...sub("sub_a"), status: { text: "running tests", at: T0 + 40_000 } },
+      T0 + 30_000,
+    );
+    expect(listSubscribers(BOARD, T0 + 30_000).subscribers[0]?.status).toEqual({
+      text: "running tests",
+      at: T0 + 40_000,
+    });
+
+    // The follower's own heartbeat never carries a status — preserve-on-absence
+    // (amended spec, ticket comment hxlw25pmk46pcgscoc3svrou): it must not wipe
+    // what the one-shot command set, unlike activity/current which clear.
+    registerSubscriber(BOARD, sub("sub_a"), T0 + 60_000);
+    const row = listSubscribers(BOARD, T0 + 60_000).subscribers[0];
+    expect(row?.status).toEqual({ text: "running tests", at: T0 + 40_000 });
+    // The heartbeat DID refresh liveness — that part is unchanged.
+    expect(row?.lastSeenAt).toBe(T0 + 60_000);
+  });
+
+  it("clears only through an explicit null, never through absence", () => {
+    registerSubscriber(
+      BOARD,
+      { ...sub("sub_a"), status: { text: "triaging", at: T0 + 5 } },
+      T0,
+    );
+    expect(
+      updateSubscriberStatus(BOARD, "sub_a", null, T0 + 1_000),
+    ).toBe(true);
+    expect(
+      listSubscribers(BOARD, T0 + 1_000).subscribers[0]?.status,
+    ).toBeUndefined();
+    // The row itself survives: clearing a status is not unregistering.
+    expect(listSubscribers(BOARD, T0 + 1_000).total).toBe(1);
+  });
+
+  it("a status-only update never refreshes lastSeenAt and never resurrects a dead row", () => {
+    registerSubscriber(
+      BOARD,
+      { ...sub("sub_a"), status: { text: "old", at: T0 } },
+      T0,
+    );
+    expect(
+      updateSubscriberStatus(
+        BOARD,
+        "sub_a",
+        { text: "new", at: T0 + 5_000 },
+        T0 + 5_000,
+      ),
+    ).toBe(true);
+    const row = listSubscribers(BOARD, T0 + 5_000).subscribers[0];
+    expect(row?.status).toEqual({ text: "new", at: T0 + 5_000 });
+    // Liveness is the FOLLOWER's heartbeat alone: the one-shot command must
+    // not push the TTL clock forward.
+    expect(row?.lastSeenAt).toBe(T0);
+
+    // An expired row: purge says gone, so the update is refused (false) and
+    // nothing is written — a dead follower's status never comes back.
+    const expired = T0 + SUBSCRIBER_TTL_MS + 1;
+    expect(
+      updateSubscriberStatus(BOARD, "sub_a", { text: "ghost", at: expired }, expired),
+    ).toBe(false);
+    expect(listSubscribers(BOARD, expired).subscribers).toEqual([]);
+
+    // A row that never existed: false, and no entry is created.
+    expect(
+      updateSubscriberStatus(BOARD, "sub_ghost", { text: "x", at: T0 }, T0),
+    ).toBe(false);
+    expect(listSubscribers(BOARD, T0).subscribers).toEqual([]);
+  });
+
+  it("dies with the row: no status outlives the heartbeat TTL or a registry reset", () => {
+    registerSubscriber(
+      BOARD,
+      { ...sub("sub_a"), status: { text: "halfway there", at: T0 + 10 } },
+      T0,
+    );
+    expect(listSubscribers(BOARD, T0 + SUBSCRIBER_TTL_MS).subscribers).toEqual([]);
+    // In-memory only — a restart starts with no status anywhere.
+    registerSubscriber(
+      BOARD,
+      { ...sub("sub_a"), status: { text: "halfway there", at: T0 + 10 } },
+      T0,
+    );
+    __resetSubscribersForTests();
+    expect(listSubscribers(BOARD, T0).subscribers).toEqual([]);
   });
 });

@@ -35,13 +35,17 @@ import {
 import {
   NOTIFICATIONS_POLL_INTERVAL_MS,
   fetchNotifications,
+  resolveOnlineAccess,
   type NotificationTarget,
 } from "./core/notifications-fetch.js";
+import type { SubscriberStatus } from "./core/subscribers.js";
 import {
   SUBSCRIBER_HEARTBEAT_MS,
   activityFromEvent,
   claimUpdateFromEvent,
   createSubscriberIdentity,
+  fetchNotificationSubscribers,
+  postSubscriberStatus,
   registerNotificationSubscriber,
   unregisterNotificationSubscriber,
   type SubscriberCallResult,
@@ -8651,6 +8655,146 @@ program
           );
         }
         return { projectDir, mode: modeOf(result.target), json: opts.json };
+      },
+    ),
+  );
+
+const agentsCommand = program
+  .command("agents")
+  .description("Agent-facing helpers for the board's Watching roster");
+
+agentsCommand
+  .command("status")
+  .description(
+    "Set (or --clear) the free-text status the Watching badge shows for this agent — in-memory only, never persisted, dies with the follower's heartbeat TTL",
+  )
+  .argument("[text]", "the status text (trimmed; truncated to 140 chars)")
+  .option("--clear", "Remove the status this agent set earlier")
+  .option("--local", "Talk to the local board")
+  .option("--online", "Talk to the linked online board")
+  .option("--json", "Emit machine-readable JSON instead of the human summary")
+  .action(
+    toolAction(
+      "agents.status",
+      async (
+        _handle,
+        text: string | undefined,
+        opts: {
+          clear?: boolean;
+          local?: boolean;
+          online?: boolean;
+          json?: boolean;
+        },
+      ) => {
+        capture("command_run", { surface: "cli", command: "agents status" });
+        await flushTelemetry();
+        const projectDir = resolve(".");
+        if (opts.local === true && opts.online === true) {
+          refuseNotificationsUsage(
+            "Pass either --local or --online, not both.",
+            "Omit both to let the project's own connection decide: vibeflow agents status \"fixing the port resolver\"",
+            opts.json,
+          );
+          return;
+        }
+        const trimmed = text?.trim();
+        const newText: string | null =
+          opts.clear === true ? null : (trimmed ?? null);
+        if (newText === null && opts.clear !== true) {
+          refuseNotificationsUsage(
+            "agents status needs <text> or --clear.",
+            "vibeflow agents status \"reproduced the port bug, writing the fix now\"  ·  vibeflow agents status --clear",
+            opts.json,
+          );
+          return;
+        }
+        if (opts.clear === true && text !== undefined) {
+          refuseNotificationsUsage(
+            "Pass either <text> or --clear, not both.",
+            "--clear removes the status; without it the text sets a new one.",
+            opts.json,
+          );
+          return;
+        }
+        const requested: NotificationTarget | undefined =
+          opts.local === true
+            ? "local"
+            : opts.online === true
+              ? "online"
+              : undefined;
+        const target: NotificationTarget =
+          requested ??
+          ((await resolveOnlineAccess(projectDir)) === null
+            ? "local"
+            : "online");
+        const mode = target === "online" ? ("saas" as const) : ("local" as const);
+        // The follower's row is keyed by the SAME identity derivation the
+        // follower used (createSubscriberIdentity), so this command finds its
+        // own agent's row without any shared state file.
+        const subscriberId = createSubscriberIdentity().subscriberId;
+
+        // E_USAGE pre-check: no live row for THIS follower ⇒ refuse before any
+        // POST (exit 2, nothing posted). The server's 409 NO_LIVE_AGENT below
+        // stays the authority if the row dies between check and write
+        // (ticket w7knq2anvb14axzpea5k7qwv).
+        const roster = await fetchNotificationSubscribers(projectDir, target);
+        if (!roster.ok) {
+          outputEnvelope({
+            ok: false,
+            code: "NOTIFICATIONS_FETCH_FAILED",
+            message: roster.message,
+            json: opts.json,
+          });
+          process.exitCode = ExitCode.GENERAL;
+          return;
+        }
+        if (
+          !roster.subscribers.some((row) => row.subscriberId === subscriberId)
+        ) {
+          refuseNotificationsUsage(
+            "No live follower for this agent — nothing was posted.",
+            "Start one first — vibeflow notifications --follow holds the row with its heartbeat — then re-run agents status.",
+            opts.json,
+          );
+          return;
+        }
+
+        const status: SubscriberStatus | null =
+          newText === null ? null : { text: newText, at: Date.now() };
+        const result = await postSubscriberStatus(
+          projectDir,
+          target,
+          subscriberId,
+          status,
+        );
+        if (!result.ok) {
+          outputEnvelope({
+            ok: false,
+            code: result.code ?? "SUBSCRIBER_STATUS_FAILED",
+            message: result.message,
+            ...(result.code === "NO_LIVE_AGENT"
+              ? {
+                  suggestion:
+                    "The follower's heartbeat TTL expired — check that vibeflow notifications --follow is still running.",
+                }
+              : {}),
+            json: opts.json,
+          });
+          process.exitCode = ExitCode.GENERAL;
+          return;
+        }
+        if (opts.json === true) {
+          outputEnvelope({
+            ok: true,
+            json: true,
+            payload: { subscriberId, status },
+          });
+        } else if (status === null) {
+          console.log(chalk.green("✓ status cleared"));
+        } else {
+          console.log(chalk.green(`✓ status set: “${status.text}”`));
+        }
+        return { projectDir, mode, json: opts.json };
       },
     ),
   );

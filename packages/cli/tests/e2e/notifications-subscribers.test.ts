@@ -167,6 +167,116 @@ describe("local subscriber routes", () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ code: "INVALID_SUBSCRIBER" });
   });
+
+  it("carries a status-only update: truncate to 140, drop a bad at, preserve on heartbeat, never touch liveness", async () => {
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir,
+      _testToken: null,
+      _testWorkspace: null,
+    });
+    const post = (body: unknown) =>
+      fetch(`${instance!.url}/api/notifications/subscribers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    expect(
+      (await post({ subscriberId: "sub_status", agent: "claude" })).status,
+    ).toBe(200);
+    const before = (await readSubscribers()).subscribers[0]!;
+    // A follower that never set one has NO status key — never a placeholder.
+    expect(before).not.toHaveProperty("status");
+
+    // Make a lastSeenAt refresh observable: same-ms writes would hide it.
+    await new Promise((r) => setTimeout(r, 30));
+    const at = Date.now();
+    const set = await post({
+      subscriberId: "sub_status",
+      status: { text: "s".repeat(500), at },
+    });
+    expect(set.status).toBe(200);
+    let row = (await readSubscribers()).subscribers[0]!;
+    // Truncated to 140 (the badge's one ellipsised line), never rejected;
+    // `at` travels verbatim — it is the SET time, not the delivery time.
+    expect(row.status).toEqual({ text: "s".repeat(140), at });
+    // The status-only update must NOT refresh the liveness clock: a one-shot
+    // command cannot resurrect a dead follower's row (ticket w7knq2anvb14axzpea5k7qwv).
+    expect(row.lastSeenAt).toBe(before.lastSeenAt);
+
+    // A heartbeat without a status PRESERVES it (amended spec, ticket
+    // comment hxlw25pmk46pcgscoc3svrou) — unlike activity, which clears.
+    expect(
+      (await post({ subscriberId: "sub_status", agent: "claude" })).status,
+    ).toBe(200);
+    row = (await readSubscribers()).subscribers[0]!;
+    expect(row.status).toEqual({ text: "s".repeat(140), at });
+    // The heartbeat itself still refreshes liveness — that part is unchanged.
+    expect(row.lastSeenAt).toBeGreaterThan(before.lastSeenAt);
+
+    // {at:-1} is DROPPED: the update changes nothing, never a 400.
+    const bad = await post({
+      subscriberId: "sub_status",
+      status: { text: "bad at", at: -1 },
+    });
+    expect(bad.status).toBe(200);
+    row = (await readSubscribers()).subscribers[0]!;
+    expect(row.status).toEqual({ text: "s".repeat(140), at });
+
+    // status: null clears explicitly — and the row itself survives.
+    expect(
+      (await post({ subscriberId: "sub_status", status: null })).status,
+    ).toBe(200);
+    row = (await readSubscribers()).subscribers[0]!;
+    expect(row).not.toHaveProperty("status");
+    expect((await readSubscribers()).total).toBe(1);
+
+    // The authority on liveness: an absent row is 409 NO_LIVE_AGENT and
+    // nothing is written — the status never brings a dead follower back.
+    const dead = await post({
+      subscriberId: "sub_nobody",
+      status: { text: "ghost", at },
+    });
+    expect(dead.status).toBe(409);
+    expect(await dead.json()).toMatchObject({ code: "NO_LIVE_AGENT" });
+    expect((await readSubscribers()).total).toBe(1);
+  });
+
+  it("vibeflow agents status with no live follower exits 2 (E_USAGE) and posts nothing", async () => {
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir,
+      _testToken: null,
+      _testWorkspace: null,
+    });
+    // The follower discovers the board through the project's config port.
+    const port = Number(new URL(instance.url).port);
+    writeConfig(projectDir, { port });
+
+    child = spawn(
+      process.execPath,
+      [CLI_ENTRY, "agents", "status", "hello there", "--local", "--json"],
+      {
+        cwd: projectDir,
+        env: isolatedCliEnv({ home: cliHome, cwd: projectDir, env: {} }),
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let stderr = "";
+    child.stderr!.setEncoding("utf8");
+    child.stderr!.on("data", (d: string) => (stderr += d));
+    const code = await new Promise<number | null>((resolve) => {
+      child!.on("close", (c) => resolve(c));
+    });
+
+    expect(code).toBe(2);
+    expect(stderr).toContain('"code":"E_USAGE"');
+    // Nothing was posted: the roster is exactly what it was.
+    const snapshot = await readSubscribers();
+    expect(snapshot.total).toBe(0);
+    expect(snapshot.subscribers).toEqual([]);
+  }, 40_000);
 });
 
 describe("vibeflow notifications --follow as a subscriber", () => {

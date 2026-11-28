@@ -113,6 +113,12 @@ export const HOOK_TOOLS: readonly HookToolSpec[] = [
   },
   { tool: "authors.link", surface: "cli", before: notGateable, after: readAfter() },
   { tool: "authors", surface: "cli", before: container, after: container },
+  // Agent status ping (w7knq2anvb14axzpea5k7qwv): `agents status` writes this
+  // agent's own free-text report onto its live follower's row — a subscriber
+  // side-call, never a task-store write, so `.before` is refused; `.after`
+  // narrates the one-shot update. `agents` itself is a pure container node.
+  { tool: "agents", surface: "cli", before: container, after: container },
+  { tool: "agents.status", surface: "cli", before: notGateable, after: readAfter() },
   // ── MCP (14) ──────────────────────────────────────────────────────
   { tool: "create_task", surface: "mcp", before: gateable("task.create"), after: gateable("task.create") },
   { tool: "update_task", surface: "mcp", before: gateable("task.update"), after: gateable("task.update") },

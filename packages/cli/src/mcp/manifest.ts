@@ -88,6 +88,10 @@ export interface CliSurfaceClassification {
 
 export const intentionallyNotExposed: CliSurfaceClassification = {
   commands: {
+    agents:
+      "agent-facing helpers for the board's Watching roster; its one command writes the agent's own free-text status onto the follower's subscriber identity over HTTP — a liveness-scoped side-call from the agent's own session, not a task operation an MCP client performs on a task",
+    "agents status":
+      "sets or --clears the status the Watching badge renders for THIS agent's live follower: it refuses E_USAGE unless the caller's own follower is registered, never refreshes the row's liveness clock, and dies with the row at the heartbeat TTL — so the writer must be the agent's own CLI session, never a remote MCP call speaking for another agent's follower",
     auth: "canonical online-auth group (login/logout/status) plus the encrypted per-task Playwright auth-state file utilities; credential management, not a task operation",
     "auth login": "device-flow leg of the auth group: interactive browser approval that cannot be driven non-interactively over MCP; credential management, not a task operation",
     "auth logout": "clears the local auth token — local credential mutation, not a task operation an MCP client should trigger",
