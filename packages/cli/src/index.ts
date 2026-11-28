@@ -31,6 +31,7 @@ import {
   isOwnNotification,
   notificationIdentity,
   type NotificationEvent,
+  type NotificationFilter,
 } from "./core/notifications.js";
 import {
   NOTIFICATIONS_POLL_INTERVAL_MS,
@@ -38,6 +39,11 @@ import {
   resolveOnlineAccess,
   type NotificationTarget,
 } from "./core/notifications-fetch.js";
+import {
+  loadNotificationsFilter,
+  renderNotificationsFilterPreview,
+  type NotificationsFilterMap,
+} from "./core/notifications-filter-config.js";
 import type { SubscriberStatus } from "./core/subscribers.js";
 import {
   SUBSCRIBER_HEARTBEAT_MS,
@@ -2628,6 +2634,13 @@ program
                   task:
                     getFields.length > 0
                       ? pickTaskFields(
+                          // SAFETY: `emittedTask` is the online detail DTO
+                          // with only `status` re-spelled to the CLI
+                          // vocabulary; `pickTaskFields` reads the keys the
+                          // local `Task` and the online DTO share (and
+                          // `--fields` only ever names those), so the
+                          // nominal DTO↔Task difference TypeScript cannot
+                          // check cannot widen what the envelope emits.
                           emittedTask as unknown as Task,
                           getFields,
                         )
@@ -8106,6 +8119,8 @@ async function followNotifications(
     limit?: number;
     json?: boolean;
     exec?: string;
+    /** Server-side subscription for every read (ticket za93ov003x6rbqv2xy9detoo). */
+    filter?: NotificationFilter;
   },
 ): Promise<
   { ok: true; target: NotificationTarget } | { ok: false; code: string; message: string }
@@ -8328,6 +8343,12 @@ async function followNotifications(
 
   let cursor = opts.since;
   let target: NotificationTarget | undefined = opts.target;
+  // The subscription this follower asked for, and the last preview line it
+  // printed. A board that REFUSES the filter (400) drops it ONCE here — warn,
+  // retry unfiltered, continue unfiltered — so an old board degrades to a
+  // wider feed instead of a dead follower (ticket za93ov003x6rbqv2xy9detoo).
+  let filter = opts.filter;
+  let lastFilterPreview: string | null = null;
   // Consecutive retryable failures; drives the backoff step.
   let failures = 0;
   // Set after the first successful read: only that answer carries the
@@ -8344,6 +8365,7 @@ async function followNotifications(
         ...(target !== undefined ? { target } : {}),
         ...(cursor !== undefined ? { since: cursor } : {}),
         ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+        ...(filter !== undefined ? { filter } : {}),
         // Ask for a HELD read (ticket olkwa34zghp22owchuhzaaba): the board
         // wakes us on the next append instead of being asked every 2 s. An
         // older board ignores the parameter and sends no `wait` back, which is
@@ -8368,6 +8390,20 @@ async function followNotifications(
     }
 
     if (!result.ok) {
+      // Old-board tolerance FIRST, before any backoff bookkeeping: a 400 with
+      // a filter attached means this board does not know our dimensions.
+      // Warn once, drop the filter, retry at once — the retry is the one
+      // unfiltered read, and every later read is unfiltered too (the flag is
+      // already cleared), so this can never spin.
+      if (filter !== undefined && result.status === 400) {
+        filter = undefined;
+        console.error(
+          chalk.yellow(
+            "! filter: this board refused the filter (HTTP 400) — continuing WITHOUT it",
+          ),
+        );
+        continue;
+      }
       if (isCursorExpired(result)) {
         // Typed recovery, not a retry: this cursor can never work again. Drop
         // the client state and resume from the newest events, and SAY that
@@ -8423,6 +8459,18 @@ async function followNotifications(
       // The TTL may have lapsed during the outage; re-announce immediately
       // instead of waiting for the next heartbeat beat.
       sendRegistration(target);
+    }
+    // The honest preview (ticket za93ov003x6rbqv2xy9detoo): startup line on
+    // the first successful read, reprinted whenever it CHANGES — the numbers
+    // come from the server's own filteredCount, never from a client tally
+    // (the follower never filters after the server dropped events). stderr,
+    // so --json/--exec stdout stays pure.
+    if (filter !== undefined) {
+      const preview = renderNotificationsFilterPreview(filter, result);
+      if (preview !== lastFilterPreview) {
+        lastFilterPreview = preview;
+        console.error(chalk.dim(preview));
+      }
     }
     for (const event of result.notifications) {
       const id = (event as { id?: unknown }).id;
@@ -8484,6 +8532,17 @@ function renderNotificationLine(event: unknown): string {
   return `${time}  ${e.type ?? ""}  ${e.taskId ?? ""}  ${changed}`.trimEnd();
 }
 
+/**
+ * Collect a REPEATED `--filter-<dim>` value into an array (ticket
+ * za93ov003x6rbqv2xy9detoo): commander otherwise keeps only the LAST
+ * occurrence, silently turning OR into one arbitrary value. Shared by the
+ * five dimension flags.
+ */
+const collectFilterValue = (
+  value: string,
+  previous: string[] | undefined,
+): string[] => (previous === undefined ? [value] : [...previous, value]);
+
 /** A `--follow` / `--exec` refusal: usage envelope, exit 2, nothing started. */
 function refuseNotificationsUsage(
   message: string,
@@ -8524,6 +8583,39 @@ program
     "--exec <cmd>",
     "With --follow: start <cmd> once and write each new event's JSON to its stdin",
   )
+  .option(
+    "--filter-taskId <value>",
+    "Filter the feed on taskId — repeatable; repeats are OR within the dimension, and flags override .vibeflow/notifications-filter.json per dimension",
+    collectFilterValue,
+  )
+  .option(
+    "--filter-type <value>",
+    "Filter the feed on type (e.g. task.comment) — repeatable, repeats are OR",
+    collectFilterValue,
+  )
+  .option(
+    "--filter-actor <value>",
+    "Filter the feed on actor — repeatable, repeats are OR",
+    collectFilterValue,
+  )
+  .option(
+    "--filter-status <value>",
+    "Filter the feed on status — repeatable, repeats are OR",
+    collectFilterValue,
+  )
+  .option(
+    "--filter-taskType <value>",
+    "Filter the feed on the task's type (e.g. Research) — repeatable, repeats are OR",
+    collectFilterValue,
+  )
+  .option(
+    "--no-filter",
+    "Ignore .vibeflow/notifications-filter.json (the --filter-* flags still apply)",
+  )
+  .option(
+    "--filter-reset",
+    "Same as --no-filter: bypass the config file for this run",
+  )
   .action(
     toolAction(
       "notifications",
@@ -8537,6 +8629,14 @@ program
           online?: boolean;
           follow?: boolean;
           exec?: string;
+          filterTaskId?: string[];
+          filterType?: string[];
+          filterActor?: string[];
+          filterStatus?: string[];
+          filterTaskType?: string[];
+          /** commander's `--no-filter` (default true; false when passed). */
+          filter?: boolean;
+          filterReset?: boolean;
         },
       ) => {
         capture("command_run", { surface: "cli", command: "notifications" });
@@ -8576,6 +8676,29 @@ program
             : opts.online === true
               ? "online"
               : undefined;
+        // The subscription for this run (ticket za93ov003x6rbqv2xy9detoo):
+        // `.vibeflow/notifications-filter.json` (unless --no-filter or
+        // --filter-reset bypasses it) with the repeatable --filter-* flags
+        // merged over it — flags win PER DIMENSION. Warnings print once, to
+        // stderr, before anything is read; a broken file means follow
+        // unfiltered, never a silent empty feed.
+        const flagsFilter: NotificationsFilterMap = {};
+        if (opts.filterTaskId !== undefined) flagsFilter.taskId = opts.filterTaskId;
+        if (opts.filterType !== undefined) flagsFilter.type = opts.filterType;
+        if (opts.filterActor !== undefined) flagsFilter.actor = opts.filterActor;
+        if (opts.filterStatus !== undefined) flagsFilter.status = opts.filterStatus;
+        if (opts.filterTaskType !== undefined) flagsFilter.taskType = opts.filterTaskType;
+        const loadedFilter = loadNotificationsFilter(projectDir, {
+          bypassFile: opts.filter === false || opts.filterReset === true,
+          flags: flagsFilter,
+        });
+        for (const warning of loadedFilter.warnings) {
+          console.error(chalk.yellow(`! filter: ${warning}`));
+        }
+        const filter: NotificationFilter | undefined =
+          Object.keys(loadedFilter.filter).length > 0
+            ? loadedFilter.filter
+            : undefined;
         const modeOf = (t: NotificationTarget) =>
           t === "online" ? ("saas" as const) : ("local" as const);
 
@@ -8586,6 +8709,7 @@ program
             ...(limit !== undefined ? { limit } : {}),
             ...(opts.json === true ? { json: true } : {}),
             ...(opts.exec !== undefined ? { exec: opts.exec } : {}),
+            ...(filter !== undefined ? { filter } : {}),
           });
           if (!followed.ok) {
             outputEnvelope({
@@ -8603,11 +8727,29 @@ program
           return { projectDir, mode: modeOf(followed.target), json: opts.json };
         }
 
-        const result = await fetchNotifications(projectDir, {
+        let result = await fetchNotifications(projectDir, {
           ...(target !== undefined ? { target } : {}),
           ...(opts.since !== undefined ? { since: opts.since } : {}),
           ...(limit !== undefined ? { limit } : {}),
+          ...(filter !== undefined ? { filter } : {}),
         });
+        // Old-board tolerance (ticket za93ov003x6rbqv2xy9detoo): a 400 with a
+        // filter attached gets ONE retry without it — a board that refuses
+        // our dimensions degrades to a wider feed with a warning, never a dead
+        // read (a filter that matches nothing is fine; a 400 is the board
+        // saying it does not know the dimension).
+        if (!result.ok && filter !== undefined && result.status === 400) {
+          console.error(
+            chalk.yellow(
+              "! filter: this board refused the filter (HTTP 400) — retrying once WITHOUT it",
+            ),
+          );
+          result = await fetchNotifications(projectDir, {
+            ...(target !== undefined ? { target } : {}),
+            ...(opts.since !== undefined ? { since: opts.since } : {}),
+            ...(limit !== undefined ? { limit } : {}),
+          });
+        }
         if (!result.ok) {
           outputEnvelope({
             ok: false,

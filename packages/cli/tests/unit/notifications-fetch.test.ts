@@ -120,6 +120,7 @@ describe("fetchNotifications — local backend", () => {
       gap: false,
       truncated: false,
       count: 2,
+      filteredCount: 0,
     });
   });
 
@@ -167,6 +168,7 @@ describe("fetchNotifications — local backend", () => {
       gap: false,
       truncated: false,
       count: 0,
+      filteredCount: 0,
     });
   });
 
@@ -236,6 +238,7 @@ describe("fetchNotifications — online backend", () => {
       gap: true,
       truncated: true,
       count: 0,
+      filteredCount: 0,
     });
   });
 
@@ -403,5 +406,104 @@ describe("fetchNotifications — `since` validation", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.code).toBe("INVALID_SINCE");
+  });
+});
+
+describe("fetchNotifications — filter serialisation", () => {
+  it("repeats the param once per value on the wire, never emitting a blank element", async () => {
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
+    const { fetchImpl, calls } = stubTransport({
+      notifications: [],
+      nextTs: null,
+      earliestTs: null,
+      gap: false,
+      truncated: false,
+      count: 0,
+      filteredCount: 0,
+    });
+    const result = await fetchNotifications(projectDir, {
+      target: "online",
+      filter: {
+        actor: ["pi-a", "pi-b"],
+        type: ["task.comment", ""],
+        taskType: "Research",
+      },
+      fetchImpl,
+    });
+    expect(result.ok).toBe(true);
+    const url = new URL(calls[0]!.url);
+    // OR on the wire: one append per value, in order.
+    expect(url.searchParams.getAll("actor")).toEqual(["pi-a", "pi-b"]);
+    // The blank element never reaches the board: the dimension is present
+    // ONCE (its valid value), with no empty second `type=`.
+    expect(url.searchParams.getAll("type")).toEqual(["task.comment"]);
+    expect(url.searchParams.get("taskType")).toBe("Research");
+  });
+
+  it("maps the board's filteredCount (0 when an old board omits the field)", async () => {
+    vi.mocked(resolveProjectAuth).mockResolvedValue(saasAuth());
+    const { fetchImpl } = stubTransport({
+      notifications: [],
+      nextTs: null,
+      earliestTs: null,
+      gap: false,
+      truncated: false,
+      count: 1,
+      filteredCount: 7,
+    });
+    const filtered = await fetchNotifications(projectDir, {
+      target: "online",
+      filter: { actor: "pi-a" },
+      fetchImpl,
+    });
+    expect(filtered.ok).toBe(true);
+    if (!filtered.ok) return;
+    expect(filtered.filteredCount).toBe(7);
+
+    const { fetchImpl: oldBoard } = stubTransport({
+      notifications: [],
+      nextTs: null,
+      earliestTs: null,
+      gap: false,
+      truncated: false,
+      count: 1,
+    });
+    const old = await fetchNotifications(projectDir, {
+      target: "online",
+      filter: { actor: "pi-a" },
+      fetchImpl: oldBoard,
+    });
+    expect(old.ok).toBe(true);
+    if (!old.ok) return;
+    // An old board applied no subscription at all (unknown params widen),
+    // so 0 is the truth rather than a guess.
+    expect(old.filteredCount).toBe(0);
+  });
+
+  it("filters the direct file read; a taskType matches nothing without local task data", async () => {
+    seedLog([
+      event({ id: "evt_1", ts: "2026-11-22T10:00:00.000Z" }),
+      event({ id: "evt_2", ts: "2026-11-22T10:00:01.000Z", type: "task.comment" }),
+    ]);
+    const narrow = await fetchNotifications(projectDir, {
+      target: "local",
+      filter: { type: ["task.comment"] },
+    });
+    expect(narrow.ok).toBe(true);
+    if (!narrow.ok) return;
+    expect(narrow.count).toBe(1);
+    expect(narrow.filteredCount).toBe(1);
+
+    // This project has no task store content, so the local resolver knows no
+    // type — the dimension matches NOTHING (never widens) and says how many
+    // events it dropped.
+    const byType = await fetchNotifications(projectDir, {
+      target: "local",
+      filter: { taskType: "Research" },
+    });
+    expect(byType.ok).toBe(true);
+    if (!byType.ok) return;
+    expect(byType.count).toBe(0);
+    expect(byType.filteredCount).toBe(2);
   });
 });

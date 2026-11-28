@@ -27,10 +27,14 @@ import { resolveProjectAuth } from "../auth/project-auth.js";
 import { fetchWithTimeout } from "../saas/request.js";
 import { getApiUrl } from "./api-url.js";
 import { readConfig } from "./config.js";
+import { appendNotificationsFilterParams } from "./notifications-filter-config.js";
 import {
   readNotifications,
+  type NotificationFilter,
+  type NotificationTaskTypeResolver,
   type NotificationWaitSignal,
 } from "./notifications.js";
+import { listTasks } from "./tasks.js";
 
 /** Which feed a read targets. */
 export type NotificationTarget = "local" | "online";
@@ -78,6 +82,13 @@ export interface FetchOptions {
   /** Page size; the store keeps the NEWEST `limit` matches. */
   limit?: number;
   /**
+   * Server-side subscription (ticket kjiodwjxmk4j90cek02amgrj): the board
+   * narrows the page and `filteredCount` reports the drops. Repeated params
+   * are serialised per value (OR); the follower never filters client-side
+   * after the server dropped events.
+   */
+  filter?: NotificationFilter;
+  /**
    * Ask the board to HOLD the read open for up to this long (ticket
    * olkwa34zghp22owchuhzaaba). Absent = the plain poll: the one behaviour an
    * OLD board understands, and therefore the fallback that must keep working.
@@ -100,6 +111,14 @@ export interface FetchResult {
   /** True iff more events matched than `limit` allowed (the newest win). */
   truncated: boolean;
   count: number;
+  /**
+   * Events the SERVER's subscription dropped this read (ticket
+   * kjiodwjxmk4j90cek02amgrj) — the honest number behind the follower's
+   * preview line. `0` on a board that predates the field: such a board
+   * applied no subscription of its own (unknown params widen), so zero is
+   * the truth, not a guess.
+   */
+  filteredCount: number;
   /**
    * How a long-poll ended, PRESENT IFF the board honoured `?wait=` — the
    * explicit capability signal (ticket olkwa34zghp22owchuhzaaba). `undefined`
@@ -208,6 +227,7 @@ async function readLocalBoard(
   if (opts.limit !== undefined) {
     url.searchParams.set("limit", String(opts.limit));
   }
+  appendNotificationsFilterParams(url, opts.filter);
   if (opts.waitMs !== undefined) url.searchParams.set("wait", String(opts.waitMs));
   let res: Response;
   try {
@@ -237,6 +257,14 @@ function readLocal(projectDir: string, opts: FetchOptions): FetchResult {
   const read = readNotifications(projectDir, {
     ...(opts.since !== undefined ? { since: opts.since } : {}),
     ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+    ...(opts.filter !== undefined ? { filter: opts.filter } : {}),
+    // `taskType` gets the SAME resolver the local board's route supplies, so
+    // a file read and a served read agree (ticket kjiodwjx…): the board's
+    // task list, read only when the dimension is present. A task this list
+    // does not know resolves to no type and matches nothing — never widen.
+    ...(opts.filter?.taskType !== undefined
+      ? { taskTypeOf: localTaskTypeResolver(projectDir) }
+      : {}),
   });
   return {
     ok: true,
@@ -247,7 +275,25 @@ function readLocal(projectDir: string, opts: FetchOptions): FetchResult {
     gap: read.gap,
     truncated: read.truncated,
     count: read.count,
+    filteredCount: read.filteredCount,
   };
+}
+
+/**
+ * `taskId → type` for a `taskType` filter on the direct file read — the same
+ * task list the local route resolves from, rebuilt per read (the read already
+ * re-reads the log file each poll; a task edit lands before its event).
+ */
+function localTaskTypeResolver(
+  projectDir: string,
+): NotificationTaskTypeResolver {
+  const typeByTaskId = new Map<string, string>();
+  for (const task of listTasks(projectDir)) {
+    if (typeof task.type === "string" && task.type !== "") {
+      typeByTaskId.set(task.id, task.type);
+    }
+  }
+  return (taskId) => typeByTaskId.get(taskId);
 }
 
 /**
@@ -323,6 +369,12 @@ function mapFeedBody(
       typeof b.count === "number" && Number.isFinite(b.count)
         ? b.count
         : notifications.length,
+    // Absent on a board that predates the field — that board applied no
+    // subscription, so 0 is the truth rather than a guess.
+    filteredCount:
+      typeof b.filteredCount === "number" && Number.isFinite(b.filteredCount)
+        ? b.filteredCount
+        : 0,
     ...(longPoll !== undefined ? { longPoll } : {}),
   };
 }
@@ -337,6 +389,7 @@ async function readOnline(
   if (opts.limit !== undefined) {
     url.searchParams.set("limit", String(opts.limit));
   }
+  appendNotificationsFilterParams(url, opts.filter);
   if (opts.waitMs !== undefined) url.searchParams.set("wait", String(opts.waitMs));
   const headers: Record<string, string> = {
     Authorization: `Bearer ${access.token}`,

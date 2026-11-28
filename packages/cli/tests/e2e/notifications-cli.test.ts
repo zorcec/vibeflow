@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnCliIsolated } from "./spawn-isolated.js";
@@ -184,5 +184,88 @@ describe("vibeflow notifications (e2e)", () => {
     } finally {
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     }
+  });
+
+  it("the config file filters, --filter-* flags win per dimension, --no-filter bypasses", async () => {
+    const configPath = join(
+      projectDir,
+      ".vibeflow",
+      "notifications-filter.json",
+    );
+    writeFileSync(
+      configPath,
+      JSON.stringify({ type: ["task.create"] }),
+      "utf8",
+    );
+
+    const add = await runCli(["tasks", "--add", "--title", "Config filter task"]);
+    expect(add.code, `stderr: ${add.stderr}`).toBe(0);
+    const ids = await runCli(["notifications", "--json", "--local", "--no-filter"]);
+    expect(ids.code, `stderr: ${ids.stderr}`).toBe(0);
+    const created = (JSON.parse(ids.stdout) as {
+      notifications: Array<{ taskId: string }>;
+    }).notifications[0]!;
+    const edit = await runCli([
+      "tasks",
+      "--edit",
+      created.taskId,
+      "--set-status",
+      "in-progress",
+      "--comment",
+      "config filter note",
+    ]);
+    expect(edit.code, `stderr: ${edit.stderr}`).toBe(0);
+    // Now three events sit in the log: create, update, comment.
+
+    // 1. The FILE alone suppresses everything it did not ask for.
+    const fileOnly = await runCli(["notifications", "--json", "--local"]);
+    expect(fileOnly.code, `stderr: ${fileOnly.stderr}`).toBe(0);
+    const filePayload = JSON.parse(fileOnly.stdout) as {
+      notifications: Array<{ type: string }>;
+      count: number;
+    };
+    expect(filePayload.notifications.map((e) => e.type)).toEqual([
+      "task.create",
+    ]);
+    expect(filePayload.count).toBe(1);
+
+    // 2. Flags win PER DIMENSION: the flag's `comment` beats the file's
+    //    `create` — and the create the file asked for is suppressed by the
+    //    flag's dimension instead (one rule, both directions).
+    const flagWins = await runCli([
+      "notifications",
+      "--json",
+      "--local",
+      "--filter-type",
+      "task.comment",
+    ]);
+    expect(flagWins.code, `stderr: ${flagWins.stderr}`).toBe(0);
+    const flagPayload = JSON.parse(flagWins.stdout) as {
+      notifications: Array<{ type: string }>;
+    };
+    expect(flagPayload.notifications.map((e) => e.type)).toEqual([
+      "task.comment",
+    ]);
+
+    // 3. --no-filter bypasses the file: the full feed comes back.
+    const bypass = await runCli([
+      "notifications",
+      "--json",
+      "--local",
+      "--no-filter",
+    ]);
+    expect(bypass.code, `stderr: ${bypass.stderr}`).toBe(0);
+    const bypassPayload = JSON.parse(bypass.stdout) as { count: number };
+    expect(bypassPayload.count).toBe(3);
+
+    // 4. A broken file warns ONCE and follows unfiltered — never a silent
+    //    empty feed, never a crash.
+    writeFileSync(configPath, "{ not json", "utf8");
+    const broken = await runCli(["notifications", "--json", "--local"]);
+    expect(broken.code, `stderr: ${broken.stderr}`).toBe(0);
+    const brokenPayload = JSON.parse(broken.stdout) as { count: number };
+    expect(brokenPayload.count).toBe(3);
+    expect(broken.stderr).toContain("not valid JSON");
+    expect(broken.stderr).toContain("following unfiltered");
   });
 });

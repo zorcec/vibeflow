@@ -15,6 +15,10 @@ import { tmpdir } from "node:os";
 import { serveWithPort } from "../helpers/serve-with-port.js";
 import { spawnCliIsolated } from "./spawn-isolated.js";
 import { ensureTaskDirs } from "../../src/core/tasks.js";
+// The CLIENT read (what `notifications --follow` polls with), aliased against
+// the raw route helper below: this test drives the filter through the client
+// at the real served board.
+import { fetchNotifications as readViaClient } from "../../src/core/notifications-fetch.js";
 import type { ServeInstance } from "../../src/server/server.js";
 import type {
   NotificationEvent,
@@ -493,6 +497,74 @@ describe("GET /api/notifications (e2e)", () => {
     const nothing = await fetchNotifications({ taskType: "Waterfall" });
     expect(nothing.count).toBe(0);
     expect(nothing.filteredCount).toBe(2);
+  });
+
+  it("a client filter suppresses delivery on the REAL board, honestly counted, cursor pinned", async () => {
+    instance = await serveWithPort(undefined, {
+      open: false,
+      projectDir,
+      _testToken: null,
+      _testWorkspace: null,
+    });
+
+    await runCli(["tasks", "--add", "--title", "client filter fixture", "--json"]);
+    await runCli([
+      "tasks",
+      "--edit",
+      (await fetchNotifications()).notifications[0]!.taskId,
+      "--set-status",
+      "in-progress",
+      "--comment",
+      "client filter me",
+      "--json",
+    ]);
+    const window = await fetchNotifications();
+    expect(window.count).toBe(3);
+
+    // The CLIENT serialises the filter onto the served route (waitMs forces
+    // the HTTP path — `longPoll` in the answer proves the BOARD answered it,
+    // not the file fallback): only the comment is delivered, the other two
+    // events are dropped AND counted, and nextTs is pinned behind the
+    // OLDEST drop.
+    const filtered = await readViaClient(projectDir, {
+      target: "local",
+      filter: { type: ["task.comment"] },
+      waitMs: 50,
+    });
+    expect(filtered.ok).toBe(true);
+    if (!filtered.ok) return;
+    expect(filtered.longPoll).toBeDefined();
+    expect(
+      filtered.notifications.map((e) => (e as { type: string }).type),
+    ).toEqual(["task.comment"]);
+    expect(filtered.count).toBe(1);
+    expect(filtered.filteredCount).toBe(2);
+    expect(filtered.nextTs).toBe(window.notifications[0]!.ts);
+
+    // The cursor NEVER regressed over the suppressed events: re-reading from
+    // where it stopped, unfiltered, still delivers every one of them.
+    const widened = await readViaClient(projectDir, {
+      target: "local",
+      since: filtered.nextTs!,
+      waitMs: 50,
+    });
+    expect(widened.ok).toBe(true);
+    if (!widened.ok) return;
+    expect(widened.notifications.map((e) => (e as { id: string }).id)).toEqual(
+      window.notifications.map((e) => e.id),
+    );
+
+    // OR through the client on the real route: create or comment matches,
+    // the update is the one drop.
+    const either = await readViaClient(projectDir, {
+      target: "local",
+      filter: { type: ["task.create", "task.comment"] },
+      waitMs: 50,
+    });
+    expect(either.ok).toBe(true);
+    if (!either.ok) return;
+    expect(either.count).toBe(2);
+    expect(either.filteredCount).toBe(1);
   });
 
 

@@ -236,6 +236,24 @@ export const intentionallyNotExposed: CliSurfaceClassification = {
       "CLI-only polling loop: it re-reads every 2 s and never returns, which is a terminal workflow an MCP client performs by calling get_notifications again with `nextTs` — a long-lived stdio tool call would block the session",
     "notifications --exec":
       "CLI-only child-process pipe: `--exec <cmd>` starts one long-running child and writes each new event to its stdin, a shell composition no MCP client can express (it has no child process to pipe into)",
+    // `--filter-*` subscription flags (ticket za93ov003x6rbqv2xy9detoo): they
+    // narrow what THIS follower's terminal and --exec child receive. The MCP
+    // feed deliberately stays unfiltered — a remote consumer applies its own
+    // rule to the whole window — so no tool input field spells a filter.
+    "notifications --filter-taskId":
+      "follower-side subscription dimension: narrows what THIS CLI's terminal (and its --exec child) receive; get_notifications deliberately answers the whole window so a remote consumer applies its own rule, so no MCP input field spells a filter",
+    "notifications --filter-type":
+      "follower-side subscription dimension (event type, repeats OR) for the local follower's own reading; the MCP feed stays unfiltered on purpose — same reason as --filter-taskId",
+    "notifications --filter-actor":
+      "follower-side subscription dimension (event actor, repeats OR) keyed to the agent reading its own terminal; the MCP feed stays unfiltered — same reason as --filter-taskId",
+    "notifications --filter-status":
+      "follower-side subscription dimension (announced status, repeats OR) for the local follower's own reading; the MCP feed stays unfiltered — same reason as --filter-taskId",
+    "notifications --filter-taskType":
+      "follower-side subscription dimension (the task's type, repeats OR) resolved from the project's own task store; the MCP feed stays unfiltered — same reason as --filter-taskId",
+    "notifications --no-filter":
+      "bypasses the project's own .vibeflow/notifications-filter.json for one local CLI run — workflow configuration of the agent's own session, nothing for a remote MCP call to bypass",
+    "notifications --filter-reset":
+      "alias of --no-filter: bypasses the local filter config file for one run — the same session-local workflow switch, same reason",
   },
 };
 
