@@ -8610,7 +8610,7 @@ program
   )
   .option(
     "--no-filter",
-    "Ignore .vibeflow/notifications-filter.json (the --filter-* flags still apply)",
+    "Ignore .vibeflow/notifications-filter.json for this run (the repeatable filter dimension flags still apply)",
   )
   .option(
     "--filter-reset",

@@ -111,8 +111,12 @@ describe("G2 — two independent views of the CLI surface", () => {
       // lists its subcommands' flags inside `--help`, and scanning those would
       // demand that the parent declare every child flag.
       const helpBody = res.stdout.split(/^Commands:$/m)[0] ?? res.stdout;
+      // Uppercase allowed after the first character: dimension flags spell
+      // their wire name verbatim (`--filter-taskId`), and a lowercase-only
+      // class would truncate them to `--filter-task` — a guard that lies
+      // about flags the help renders perfectly.
       const helpFlags = new Set(
-        [...helpBody.matchAll(/--[a-z][a-z0-9-]*/g)]
+        [...helpBody.matchAll(/--[a-z][a-zA-Z0-9-]*/g)]
           .map((m) => m[0])
           .filter((f) => f !== "--help"),
       );
