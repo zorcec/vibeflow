@@ -45,6 +45,14 @@ export interface WatchingActivity {
   at: number;
 }
 
+/** One follower's own free-text status report (mock #2; ticket c9ei8dck7tpcog0wcypddren). */
+export interface WatchingStatus {
+  /** The agent's report, as the registry stores it. */
+  text: string;
+  /** When the status was SET (epoch ms) — a heartbeat never refreshes it. */
+  at: number;
+}
+
 /** One live follower in the badge's list. */
 export interface WatchingSubscriber {
   subscriberId: string;
@@ -53,6 +61,8 @@ export interface WatchingSubscriber {
   registeredAt: number;
   lastSeenAt: number;
   activity?: WatchingActivity;
+  /** The agent's own status; absent when it never set one — no line then. */
+  status?: WatchingStatus;
 }
 
 export interface WatchingSnapshot {
@@ -115,6 +125,19 @@ function activityFrom(raw: unknown): WatchingActivity | undefined {
   };
 }
 
+/**
+ * The optional status a row carries (ticket c9ei8dck7tpcog0wcypddren).
+ * "Absent stays absent", exactly like {@link activityFrom}: a follower that
+ * never sent one gets NO line — never a placeholder the badge invented.
+ */
+function statusFrom(raw: unknown): WatchingStatus | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const s = raw as Record<string, unknown>;
+  if (typeof s.text !== "string" || s.text === "") return undefined;
+  if (typeof s.at !== "number" || !Number.isFinite(s.at)) return undefined;
+  return { text: s.text, at: s.at };
+}
+
 function subscriberFrom(raw: unknown): WatchingSubscriber | null {
   if (typeof raw !== "object" || raw === null) return null;
   const s = raw as Record<string, unknown>;
@@ -129,6 +152,7 @@ function subscriberFrom(raw: unknown): WatchingSubscriber | null {
     return null;
   }
   const activity = activityFrom(s.activity);
+  const status = statusFrom(s.status);
   return {
     subscriberId: s.subscriberId,
     user: s.user,
@@ -136,6 +160,7 @@ function subscriberFrom(raw: unknown): WatchingSubscriber | null {
     registeredAt: s.registeredAt,
     lastSeenAt: s.lastSeenAt,
     ...(activity !== undefined ? { activity } : {}),
+    ...(status !== undefined ? { status } : {}),
   };
 }
 
@@ -177,6 +202,70 @@ function activityWhen(activity: WatchingActivity | undefined, now: number): stri
   return elapsed > WATCHING_IDLE_AFTER_MS
     ? "idle, watching"
     : agoLabel(elapsed);
+}
+
+/**
+ * The agent's own status line: uppercase label, the report, its age — amber
+ * `--t-agent` soft background per mock #2, inline styles only (this
+ * component has no CSS classes; ticket c9ei8dck7tpcog0wcypddren). Past
+ * {@link WATCHING_IDLE_AFTER_MS} the line goes muted and reads `idle`: a
+ * frozen status would lie, exactly like the activity row's own wording. The
+ * caller renders NOTHING when a row has no status — absence is not a line.
+ */
+function StatusLine({ status, now }: { status: WatchingStatus; now: number }) {
+  const elapsed = now - status.at;
+  const idle = elapsed > WATCHING_IDLE_AFTER_MS;
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 7,
+        alignItems: "flex-start",
+        padding: "7px 8px",
+        marginTop: 2,
+        borderRadius: 8,
+        background: "color-mix(in srgb, var(--t-agent) 8%, transparent)",
+        border: "1px solid color-mix(in srgb, var(--t-agent) 22%, transparent)",
+        fontSize: 11.5,
+        color: idle ? "var(--t-text-faint)" : "var(--t-text-body)",
+      }}
+    >
+      <span
+        style={{
+          color: idle ? "var(--t-text-muted)" : "var(--t-agent)",
+          fontWeight: 700,
+          fontSize: 10,
+          textTransform: "uppercase",
+          letterSpacing: "0.05em",
+          flexShrink: 0,
+          paddingTop: 1,
+        }}
+      >
+        status
+      </span>
+      <span
+        style={{
+          flex: 1,
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {idle ? "idle" : `“${status.text}”`}
+      </span>
+      <span
+        style={{
+          flexShrink: 0,
+          fontSize: 10,
+          color: "var(--t-text-faint)",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {agoLabel(elapsed)}
+      </span>
+    </div>
+  );
 }
 
 export function WatchingBadge({
@@ -363,6 +452,9 @@ export function WatchingBadge({
                     >
                       {activityWhat(subscriber)}
                     </div>
+                    {subscriber.status !== undefined && (
+                      <StatusLine status={subscriber.status} now={now} />
+                    )}
                   </div>
                 );
               })
